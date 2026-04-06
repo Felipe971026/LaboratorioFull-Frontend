@@ -3,13 +3,13 @@ export const PROFESSIONALS = [
     id: 'luis',
     name: 'Luis Israel Valeriano Rodríguez',
     signaturePath: '/firma1.png',
-    registry: '111'
+    registry: '270251'
   },
   {
     id: 'omadis',
     name: 'Omadis Emelda Meza González',
     signaturePath: '/firma2.png',
-    registry: '222'
+    registry: '15520'
   }
 ];
 
