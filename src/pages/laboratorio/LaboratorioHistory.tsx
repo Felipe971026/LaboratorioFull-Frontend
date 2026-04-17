@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { History, Trash2, AlertTriangle, Inbox, Paperclip, FileText, Download, Eye } from 'lucide-react';
 import { loadResults, clearAllResults, deleteResult, updateResult } from './services/storageService';
 import { generatePdf, generateJson } from './services/pdfService';
 import { LabResultData } from './types';
-import { format } from 'date-fns';
+import { formatColombia } from '../../utils/dateUtils';
 import { LaboratorioDetailModal } from './LaboratorioDetailModal';
 import { DeleteConfirmationModal } from './components/DeleteConfirmationModal';
 
@@ -141,7 +142,7 @@ export const LaboratorioHistory: React.FC = () => {
                         <Paperclip className="text-slate-400 w-4 h-4" />
                       )}
                       <div className="text-slate-400 text-sm">
-                        {format(new Date(result.date), 'dd/MM/yyyy')}
+                        {formatColombia(result.date).split(' ')[0]}
                       </div>
                     </div>
                   </div>
