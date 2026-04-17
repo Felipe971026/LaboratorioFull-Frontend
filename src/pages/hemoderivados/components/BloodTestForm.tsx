@@ -155,14 +155,23 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
     await new Promise(resolve => setTimeout(resolve, 500));
 
     const unitRecord = receivedUnits.find(u => u.unitId === unitId || u.qualitySeal === unitId);
-    const isUsed = transfusionRecords.some(t => t.unitId === unitId || t.qualitySeal === unitId) ||
-                   dispositionRecords.some(d => d.unitId === unitId || d.qualitySeal === unitId);
-    const isReturned = existingRecords.some(r => (r.unitId === unitId || r.qualitySeal === unitId) && r.returned);
+    
+    // A unit is blocked if it's already used in transfusion/disposition 
+    // OR if it has an active (accepted and not returned) cross-match record
+    const isTransfusedOrDisposed = transfusionRecords.some(t => t.unitId === unitId || t.qualitySeal === unitId) ||
+                                  dispositionRecords.some(d => d.unitId === unitId || d.qualitySeal === unitId);
+    
+    const hasActiveCrossmatch = existingRecords.some(r => 
+      (r.unitId === unitId || r.qualitySeal === unitId) && 
+      r.acceptedBy && 
+      !r.returned
+    );
 
     if (unitRecord) {
-      if (isUsed && !isReturned) {
-        setAlertMessage(`NOVEDAD: La unidad "${unitId}" ya ha sido UTILIZADA o tiene una DISPOSICIÓN FINAL.`);
-        setUnitValidationMessage({ text: 'Unidad no disponible (Ya utilizada)', type: 'error' });
+      if (isTransfusedOrDisposed || hasActiveCrossmatch) {
+        const reason = isTransfusedOrDisposed ? 'UTILIZADA o tiene una DISPOSICIÓN FINAL' : 'RESTRINGIDA por una prueba cruzada activa';
+        setAlertMessage(`NOVEDAD: La unidad "${unitId}" ya ha sido ${reason}.`);
+        setUnitValidationMessage({ text: `Unidad no disponible (${reason})`, type: 'error' });
         return;
       }
       setFormData(prev => ({
@@ -251,20 +260,21 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
     }
 
     // Validate Unit Reuse
-    const isUnitAlreadyTransfused = existingRecords.some(record => {
+    const isUnitAlreadyBlocked = existingRecords.some(record => {
       if (record.id === formData.id) return false;
       
       const sameUnitId = formData.unitId && record.unitId === formData.unitId;
       const sameQualitySeal = formData.qualitySeal && record.qualitySeal === formData.qualitySeal;
       
-      const isTransfusedOrUrgent = record.requestType === 'Transfusion' || record.requestType === 'Urgencia Vital';
+      // A unit is blocked if it has an accepted record that hasn't been returned
+      const isAccepted = !!record.acceptedBy;
       const isReturned = record.returned === true;
       
-      return (sameUnitId || sameQualitySeal) && isTransfusedOrUrgent && !isReturned;
+      return (sameUnitId || sameQualitySeal) && isAccepted && !isReturned;
     });
 
-    if (isUnitAlreadyTransfused) {
-      setAlertMessage('El Número de Unidad o Sello de Calidad ya ha sido utilizado (Transfusión o Urgencia Vital) y está bloqueado. No puede ser utilizado para nuevas reservas ni transfusiones.');
+    if (isUnitAlreadyBlocked) {
+      setAlertMessage('El Número de Unidad o Sello de Calidad ya tiene una prueba cruzada ACEPTADA activa y está bloqueado. Debe ser devuelta para liberarse.');
       return;
     }
 
