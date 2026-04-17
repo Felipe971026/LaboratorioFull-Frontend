@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trash2, History, LogIn, ShieldCheck, CheckCircle, Truck } from 'lucide-react';
@@ -8,6 +9,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
 import { DeleteConfirmationModal } from '../../laboratorio/components/DeleteConfirmationModal';
 import { saveRecord as apiSaveRecord, deleteRecord as apiDeleteRecord } from '../../../lib/api';
+import { getNowISO, formatColombia } from '../../../utils/dateUtils';
 
 export const DisposicionApp: React.FC = () => {
   const navigate = useNavigate();
@@ -112,7 +114,7 @@ export const DisposicionApp: React.FC = () => {
         const updateData = {
           ...editingRecord,
           ...formData,
-          updatedAt: new Date().toISOString(),
+          updatedAt: getNowISO(),
           updatedBy: user.email || 'Desconocido'
         };
         await apiSaveRecord('finalDisposition', updateData, user.email || 'Desconocido');
@@ -120,7 +122,7 @@ export const DisposicionApp: React.FC = () => {
       } else {
         const fullRecord = {
           ...formData,
-          createdAt: new Date().toISOString(),
+          createdAt: getNowISO(),
           uid: user.uid,
           userEmail: user.email || 'Desconocido'
         };
@@ -253,7 +255,7 @@ export const DisposicionApp: React.FC = () => {
                       )}
                       <div className="flex justify-between items-start pr-10">
                         <div className="bg-zinc-50 text-zinc-600 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Unidad: {record.unitId}</div>
-                        <span className="text-xs text-zinc-400">{new Date(record.createdAt).toLocaleString()}</span>
+                        <span className="text-xs text-zinc-400">{formatColombia(record.createdAt)}</span>
                       </div>
                       {record.qualitySeal && (
                         <div className="bg-zinc-50 px-3 py-1 rounded-full text-xs font-medium text-zinc-600 inline-block">
