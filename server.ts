@@ -1,3 +1,4 @@
+
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -211,19 +212,32 @@ function formatSheetValue(value: any, key: string): string {
     return value.map(p => `${p.name}: ${p.value} ${p.unit} (${p.status})`).join(' | ');
   }
   
-  // Format ISO timestamps (like createdAt, updatedAt, acceptedAt, returnedAt, timestamp)
-  if (key.endsWith('At') || key === 'createdAt' || key === 'updatedAt' || key === 'timestamp') {
+  // Format ISO timestamps and date fields
+  const isDateKey = key === 'date' || key.endsWith('At') || key === 'createdAt' || key === 'updatedAt' || key === 'timestamp' || 
+                    key.toLowerCase().includes('date') || key.toLowerCase().includes('time');
+
+  if (isDateKey && value) {
     try {
       const date = new Date(value);
       if (!isNaN(date.getTime())) {
-        // Format to local date/time string: DD/MM/YYYY HH:mm:ss
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = date.getFullYear();
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        const seconds = String(date.getSeconds()).padStart(2, '0');
-        return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+        // Use Intl.DateTimeFormat to force Colombia Time Zone (America/Bogota)
+        const formatter = new Intl.DateTimeFormat('es-CO', {
+          timeZone: 'America/Bogota',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        });
+        
+        const parts = formatter.formatToParts(date);
+        const p: Record<string, string> = {};
+        parts.forEach(part => p[part.type] = part.value);
+        
+        // Return in format: DD/MM/YYYY HH:mm:ss
+        return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}:${p.second}`;
       }
     } catch (e) {
       return String(value);
@@ -784,7 +798,7 @@ app.get('/api/records/:collection', async (req, res) => {
 // Inventory Closure Endpoint
 app.post('/api/inventory/close', async (req, res) => {
   const { items, responsible } = req.body;
-  const date = new Date().toLocaleString();
+  const date = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
 
   try {
     const sheets = getSheetsClient();

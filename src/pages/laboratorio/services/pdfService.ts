@@ -1,7 +1,9 @@
+
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { LabResultData } from '../types';
 import { PROFESSIONALS } from '../../../constants';
+import { formatColombia } from '../../../utils/dateUtils';
 
 // Helper to load image
 const loadImage = (url: string): Promise<HTMLImageElement> => {
@@ -16,180 +18,178 @@ const loadImage = (url: string): Promise<HTMLImageElement> => {
 
 export const generatePdf = async (result: LabResultData) => {
   const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
   let currentY = 15;
   
-  // Add Logo
+  // 1. Header: Company Info (Left) and Logo (Right)
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+  doc.text('Medicina Intensiva del Tolima', 14, currentY);
+  
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Dirección: Calle 9 No. 22 A - 193', 14, currentY + 5);
+  doc.text('Telefonos (8) 2517771 - (8) 2511666 FAX (8) 2515771', 14, currentY + 9);
+  
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Resultados de Laboratorio Clinico', 14, currentY + 15);
+
   try {
     const logoImg = await loadImage('/logo.png');
     const logoProps = doc.getImageProperties(logoImg);
-    const logoWidth = 20; // Reduced from 30
-    const logoHeight = (logoProps.height * logoWidth) / logoProps.width;
-    doc.addImage(logoImg, 'PNG', 14, 10, logoWidth, logoHeight);
-    currentY = Math.max(currentY, 10 + logoHeight + 5);
+    const logoHeight = 15; // Fixed height to match header text
+    const logoWidth = (logoProps.width * logoHeight) / logoProps.height;
+    doc.addImage(logoImg, 'PNG', pageWidth - logoWidth - 14, 12, logoWidth, logoHeight);
   } catch (e) {
     console.error('Error loading logo for PDF', e);
-    currentY = 30;
   }
 
-  // Header Title
-  doc.setFontSize(20);
-  doc.setTextColor(30, 41, 59); // slate-800
-  doc.text('Resultados de Laboratorio', 50, 20);
+  currentY += 25;
+
+  // 2. Patient Info Section
+  doc.setFontSize(8);
+  doc.setTextColor(0, 0, 0);
   
-  doc.setFontSize(10);
-  doc.setTextColor(100, 116, 139); // slate-500
-  doc.text(`Fecha: ${new Date(result.date).toLocaleDateString()}`, 14, currentY);
-  currentY += 10;
+  const leftColX = 14;
+  const rightColX = pageWidth / 2 + 10;
+  const labelWidth = 32; // Increased to prevent overlap
+
+  const drawInfoLine = (label: string, value: string, x: number, y: number) => {
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${label}`, x, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`:  ${value}`, x + labelWidth, y);
+  };
+
+  drawInfoLine('Solicitud', result.solicitudNumber || result.id.substring(0, 8).toUpperCase(), leftColX, currentY);
+  drawInfoLine('Fecha Recepción', formatColombia(result.date), rightColX, currentY);
+  currentY += 4;
+
+  drawInfoLine('Paciente', result.patientName.toUpperCase(), leftColX, currentY);
+  drawInfoLine('Fecha Impresión', formatColombia(new Date()), rightColX, currentY);
+  currentY += 4;
+
+  drawInfoLine('Identificación', result.clinicalHistoryNumber || 'N/A', leftColX, currentY);
+  drawInfoLine('Fecha Toma Muestra', formatColombia(result.date).split(' ')[0], rightColX, currentY);
+  currentY += 4;
+
+  drawInfoLine('EPS', result.eps || 'PARTICULAR', leftColX, currentY);
+  currentY += 4;
+
+  drawInfoLine('Edad', result.age || 'N/A', leftColX, currentY);
+  currentY += 4;
+
+  drawInfoLine('Tipo de Estudio', result.studyType.toUpperCase(), leftColX, currentY);
   
-  // Patient Info
-  doc.setFontSize(12);
-  doc.setTextColor(30, 41, 59);
-  doc.text('Información del Paciente', 14, currentY);
-  currentY += 5;
-  
-  autoTable(doc, {
-    startY: currentY,
-    head: [['Paciente', 'Identificación', 'Edad', 'EPS', 'Estudio']],
-    body: [[
-      result.patientName,
-      result.clinicalHistoryNumber || 'N/A',
-      result.age || 'N/A',
-      result.eps || 'N/A',
-      result.studyType || 'N/A'
-    ]],
-    theme: 'grid',
-    headStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59] },
-    styles: { fontSize: 9 }
+  currentY += 8;
+
+  // 3. Results Table
+  const tableData = result.parameters.map(p => {
+    const isOutOfRange = p.status === 'Alto' || p.status === 'Bajo';
+    const displayValue = isOutOfRange ? `${p.value} *` : p.value;
+    return [
+      p.name.toUpperCase(),
+      `${displayValue} ${p.unit}`,
+      p.referenceRange,
+      p.status === 'Normal' ? '' : p.status.toUpperCase()
+    ];
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 10;
-
-  // Parameters Table
-  doc.setFontSize(12);
-  doc.text('Parámetros Analizados', 14, currentY);
-  currentY += 5;
-  
-  const tableData = result.parameters.map(p => [
-    p.name,
-    `${p.value} ${p.unit}`,
-    p.referenceRange,
-    p.status,
-    p.analysis
-  ]);
-
   autoTable(doc, {
     startY: currentY,
-    head: [['Parámetro', 'Valor', 'Rango Ref.', 'Estado', 'Análisis']],
+    head: [['ANALISIS', 'RESULTADO', 'REFERENCIA O RANGO', 'ESTADO']],
     body: tableData,
-    theme: 'grid',
-    headStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59] },
-    styles: { fontSize: 9 },
+    theme: 'plain',
+    headStyles: { 
+      fillColor: [255, 255, 255], 
+      textColor: [0, 0, 0], 
+      fontStyle: 'bold',
+      lineWidth: { bottom: 0.2 },
+      lineColor: [0, 0, 0],
+      fontSize: 8
+    },
+    styles: { 
+      fontSize: 7,
+      cellPadding: 1.5,
+      textColor: [0, 0, 0]
+    },
+    columnStyles: {
+      0: { cellWidth: 70 },
+      1: { cellWidth: 35 },
+      2: { cellWidth: 55 },
+      3: { cellWidth: 30, fontStyle: 'bold' }
+    },
     didParseCell: function(data) {
+      if (data.section === 'body' && data.column.index === 1) {
+        const value = data.cell.raw as string;
+        if (value.includes('*')) {
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
       if (data.section === 'body' && data.column.index === 3) {
         const status = data.cell.raw as string;
-        if (status === 'Alto') {
-          data.cell.styles.textColor = [220, 38, 38]; // red-600
-          data.cell.styles.fontStyle = 'bold';
-        } else if (status === 'Bajo') {
-          data.cell.styles.textColor = [217, 119, 6]; // amber-600
-          data.cell.styles.fontStyle = 'bold';
-        } else {
-          data.cell.styles.textColor = [5, 150, 105]; // emerald-600
-        }
+        if (status === 'ALTO') data.cell.styles.textColor = [220, 38, 38];
+        if (status === 'BAJO') data.cell.styles.textColor = [217, 119, 6];
       }
     }
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 15;
+  currentY = (doc as any).lastAutoTable.finalY + 12; // Increased space between table and validation
 
-  // General Analysis
-  if (result.generalAnalysis) {
-    // Check if we need a new page for analysis header
-    if (currentY > 260) {
-      doc.addPage();
-      currentY = 20;
-    }
-    
-    doc.setFontSize(12);
-    doc.setTextColor(30, 41, 59);
-    doc.text('Análisis General', 14, currentY);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(71, 85, 105); // slate-600
-    const splitText = doc.splitTextToSize(result.generalAnalysis, 180);
-    
-    // Check if text fits, if not, move to next page
-    if (currentY + 7 + (splitText.length * 5) > 270) {
-      doc.addPage();
-      currentY = 20;
-      doc.text('Análisis General (cont.)', 14, currentY);
-      currentY += 7;
-    } else {
-      currentY += 7;
-    }
-    
-    doc.text(splitText, 14, currentY);
-    currentY += (splitText.length * 5) + 10;
-  }
-
-  // Signature and Professional Info (Right after analysis)
-  const professional = PROFESSIONALS.find(p => p.name === result.bacteriologist) || PROFESSIONALS[0];
+  // 4. Validation and Signature
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Fecha Validación: ${formatColombia(new Date())}`, 14, currentY);
   
-  let sigWidth = 20; // Reduced from 30
-  let sigHeight = 15; // Default height
+  currentY += 12; // Small space before signature block
+
+  const professional = PROFESSIONALS.find(p => p.name === result.bacteriologist) || PROFESSIONALS[0];
+  const sigX = 14; 
+  
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Validado Por:', sigX, currentY - 8);
 
   try {
     const signature = await loadImage(professional.signaturePath);
-    sigHeight = (signature.height * sigWidth) / signature.width;
+    const sigHeight = 10; // Fixed height for consistency
+    const sigWidth = (signature.width * sigHeight) / signature.height;
     
-    // Ensure enough space from previous content to avoid overlap
-    currentY += sigHeight + 10; 
-
-    // Check if we need a new page for signature
-    if (currentY > 270) {
+    if (currentY + sigHeight > 280) {
       doc.addPage();
-      currentY = 30 + sigHeight;
+      currentY = 30;
     }
 
-    doc.addImage(signature, 'PNG', 14, currentY - sigHeight, sigWidth, sigHeight);
+    doc.addImage(signature, 'PNG', sigX, currentY - 6, sigWidth, sigHeight);
+    currentY += sigHeight + 2;
   } catch (e) {
     console.error('Error loading signature:', e);
-    try {
-      const fallbackSignature = await loadImage('/firma1.png');
-      sigHeight = (fallbackSignature.height * sigWidth) / fallbackSignature.width;
-      currentY += sigHeight + 10;
-      
-      if (currentY > 270) {
-        doc.addPage();
-        currentY = 30 + sigHeight;
-      }
-      
-      doc.addImage(fallbackSignature, 'PNG', 14, currentY - sigHeight, sigWidth, sigHeight);
-    } catch (fallbackError) {
-      console.error('Error loading fallback signature:', fallbackError);
-      currentY += 20; // Space for the line if no signature
-    }
+    currentY += 8;
   }
 
-  doc.setDrawColor(203, 213, 225);
-  doc.line(14, currentY + 1, 74, currentY + 1);
-  
-  doc.setFontSize(10);
-  doc.setTextColor(30, 41, 59);
-  doc.text(professional.name, 14, currentY + 6);
-  
   doc.setFontSize(8);
-  doc.setTextColor(100, 116, 139);
-  doc.text(`Bacteriólogo(a) - Reg. ${professional.registry}`, 14, currentY + 11);
-  
-  currentY += 20; // Update currentY for next content
+  doc.setFont('helvetica', 'bold');
+  doc.text(professional.name.toUpperCase(), sigX, currentY);
+  currentY += 3;
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Reg. Prof. ${professional.registry}`, sigX, currentY);
 
-  // Original Sample Image (Always on a new page)
+  // 5. Footer
+  const footerY = 285;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.text('* La interpretación del resultado de sus examenes corresponde exclusivamente al médico *', pageWidth / 2, footerY, { align: 'center' });
+
+  // 6. Second Page: Original Document
   if (result.sourceImage) {
     doc.addPage();
+    doc.setTextColor(0, 0, 0);
     doc.setFontSize(12);
-    doc.setTextColor(30, 41, 59);
-    doc.text('Documento Original Adjunto', 14, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Documento Original Adjunto (Scanner)', 14, 20);
     
     try {
       const sourceImage = result.sourceImage;
@@ -198,7 +198,7 @@ export const generatePdf = async (result: LabResultData) => {
       if (sourceImage.startsWith('data:image/webp')) format = 'WEBP';
       
       const imgProps = doc.getImageProperties(sourceImage);
-      const pdfWidth = doc.internal.pageSize.getWidth() - 28;
+      const pdfWidth = pageWidth - 28;
       const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
       
       const maxPdfHeight = doc.internal.pageSize.getHeight() - 40;
@@ -210,34 +210,20 @@ export const generatePdf = async (result: LabResultData) => {
         finalWidth = (imgProps.width * finalHeight) / imgProps.height;
       }
       
-      const xOffset = (doc.internal.pageSize.getWidth() - finalWidth) / 2;
+      const xOffset = (pageWidth - finalWidth) / 2;
       doc.addImage(sourceImage, format, xOffset, 30, finalWidth, finalHeight);
     } catch (e) {
       console.error('Error adding source image to PDF', e);
     }
   }
 
-  // Footer
-  const pageCount = (doc as any).internal.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setFontSize(8);
-    doc.setTextColor(148, 163, 184); // slate-400
-    doc.text(
-      `Página ${i} de ${pageCount} - Generado por UCI Honda`,
-      doc.internal.pageSize.width / 2,
-      doc.internal.pageSize.height - 10,
-      { align: 'center' }
-    );
-  }
-
-  const dateStr = new Date(result.date).toISOString().split('T')[0];
+  const dateStr = formatColombia(result.date).split(' ')[0].replace(/\//g, '-');
   const safePatientName = result.patientName.replace(/\s+/g, '_');
   doc.save(`${dateStr}_Resultado_Laboratorio_${safePatientName}.pdf`);
 };
 
 export const generateJson = (result: LabResultData) => {
-  const dateStr = new Date(result.date).toISOString().split('T')[0];
+  const dateStr = formatColombia(result.date).split(' ')[0].replace(/\//g, '-');
   const safePatientName = result.patientName.replace(/\s+/g, '_');
   const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(result, null, 2));
   const downloadAnchorNode = document.createElement('a');

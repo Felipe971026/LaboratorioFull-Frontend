@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -39,6 +40,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../../firebase';
 import { ExcelExportButton } from '../../components/ExcelExportButton';
+import { getNowISO, getColombiaDateString, formatColombia } from '../../utils/dateUtils';
 
 // Types
 interface Supply {
@@ -186,8 +188,7 @@ export const Kardex: React.FC = () => {
     const checkExpirations = async () => {
       if (!auth.currentUser) return;
       
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const today = new Date(getColombiaDateString() + 'T00:00:00');
 
       for (const supply of supplies) {
         // Fix negative stock
@@ -202,7 +203,7 @@ export const Kardex: React.FC = () => {
                 supplyId: supply.id,
                 supplyName: supply.name,
                 supplyCategory: supply.category,
-                date: new Date().toISOString(),
+                date: getNowISO(),
                 type: 'action',
                 actionType: 'stock_correction',
                 quantity: Math.abs(supply.currentStock),
@@ -214,7 +215,7 @@ export const Kardex: React.FC = () => {
                 invimaRecord: 'N/A',
                 userEmail: auth.currentUser.email,
                 uid: auth.currentUser.uid,
-                createdAt: new Date().toISOString()
+                createdAt: getNowISO()
               })
             });
             await updateDoc(doc(db, 'supplies', supply.id), {
@@ -244,7 +245,7 @@ export const Kardex: React.FC = () => {
                     supplyId: supply.id,
                     supplyName: supply.name,
                     supplyCategory: supply.category,
-                    date: new Date().toISOString(),
+                    date: getNowISO(),
                     type: 'action',
                     actionType: 'delete_batch',
                     quantity: batch.currentBalance,
@@ -256,7 +257,7 @@ export const Kardex: React.FC = () => {
                     invimaRecord: 'N/A',
                     userEmail: auth.currentUser.email,
                     uid: auth.currentUser.uid,
-                    createdAt: new Date().toISOString()
+                    createdAt: getNowISO()
                   })
                 });
                 console.log('Kardex entry recorded successfully');
@@ -304,9 +305,8 @@ export const Kardex: React.FC = () => {
 
   const getBatchStatus = (expirationDate: string): 'red' | 'yellow' | 'green' | 'black' => {
     if (!expirationDate) return 'green';
-    const exp = new Date(expirationDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const exp = new Date(expirationDate + 'T00:00:00');
+    const today = new Date(getColombiaDateString() + 'T00:00:00');
     
     if (exp < today) return 'black';
 
@@ -414,7 +414,7 @@ export const Kardex: React.FC = () => {
         supplyId: selectedSupply.id,
         supplyName: selectedSupply.name,
         supplyCategory: selectedSupply.category,
-        date: new Date().toISOString(),
+        date: getNowISO(),
         type: movementType,
         actionType: movementType, // 'input' or 'output'
         quantity,
@@ -426,7 +426,7 @@ export const Kardex: React.FC = () => {
         invimaRecord: movement.invimaRecord || 'N/A',
         userEmail: auth.currentUser?.email,
         uid: auth.currentUser?.uid,
-        createdAt: new Date().toISOString()
+        createdAt: getNowISO()
       };
 
       await fetch('/api/records/kardexEntries', {
@@ -470,7 +470,7 @@ export const Kardex: React.FC = () => {
         supplyId: selectedSupply.id,
         supplyName: selectedSupply.name,
         supplyCategory: selectedSupply.category,
-        date: new Date().toISOString(),
+        date: getNowISO(),
         type: 'action',
         actionType: 'edit_batch',
         quantity: 0,
@@ -482,7 +482,7 @@ export const Kardex: React.FC = () => {
         invimaRecord: 'N/A',
         userEmail: auth.currentUser?.email,
         uid: auth.currentUser?.uid,
-        createdAt: new Date().toISOString()
+        createdAt: getNowISO()
       };
 
       await fetch('/api/records/kardexEntries', {
@@ -519,7 +519,7 @@ export const Kardex: React.FC = () => {
         supplyId: selectedSupply.id,
         supplyName: selectedSupply.name,
         supplyCategory: selectedSupply.category,
-        date: new Date().toISOString(),
+        date: getNowISO(),
         type: 'action',
         actionType: 'delete_batch',
         quantity: batchToEdit.currentBalance,
@@ -531,7 +531,7 @@ export const Kardex: React.FC = () => {
         invimaRecord: 'N/A',
         userEmail: auth.currentUser?.email,
         uid: auth.currentUser?.uid,
-        createdAt: new Date().toISOString()
+        createdAt: getNowISO()
       };
 
       await fetch('/api/records/kardexEntries', {
@@ -574,7 +574,7 @@ export const Kardex: React.FC = () => {
         supplyId: selectedSupply.id,
         supplyName: editSupplyData.name,
         supplyCategory: editSupplyData.category,
-        date: new Date().toISOString(),
+        date: getNowISO(),
         type: 'action',
         actionType: 'edit_supply',
         quantity: 0,
@@ -586,7 +586,7 @@ export const Kardex: React.FC = () => {
         invimaRecord: 'N/A',
         userEmail: auth.currentUser?.email,
         uid: auth.currentUser?.uid,
-        createdAt: new Date().toISOString()
+        createdAt: getNowISO()
       };
 
       await fetch('/api/records/kardexEntries', {
@@ -629,7 +629,7 @@ export const Kardex: React.FC = () => {
           id: entryId,
           supplyId: selectedSupply.id,
           supplyName: selectedSupply.name,
-          date: new Date().toISOString(),
+          date: getNowISO(),
           type: 'action',
           actionType: 'delete_supply',
           quantity: 0,
@@ -641,7 +641,7 @@ export const Kardex: React.FC = () => {
           invimaRecord: 'N/A',
           userEmail: auth.currentUser?.email || '',
           uid: auth.currentUser?.uid || 'system',
-          createdAt: new Date().toISOString()
+          createdAt: getNowISO()
         };
         
         if (selectedSupply.category) {
@@ -703,7 +703,7 @@ export const Kardex: React.FC = () => {
     try {
       setIsClosingInventory(true);
       const doc = new jsPDF();
-      const date = new Date().toLocaleString();
+      const date = formatColombia(new Date());
       const responsible = auth.currentUser?.email || 'Sistema';
 
       // PDF Header
@@ -755,7 +755,7 @@ export const Kardex: React.FC = () => {
       });
 
       // Save PDF locally
-      doc.save(`Cierre_Inventario_${new Date().toISOString().split('T')[0]}.pdf`);
+      doc.save(`Cierre_Inventario_${getColombiaDateString()}.pdf`);
 
       // Save to Excel via API
       const response = await fetch('/api/inventory/close', {

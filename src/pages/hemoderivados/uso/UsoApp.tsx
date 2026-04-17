@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Activity, History, LogIn, LogOut, ShieldCheck, Trash2, Plus } from 'lucide-react';
@@ -9,6 +10,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
 import { DeleteConfirmationModal } from '../../laboratorio/components/DeleteConfirmationModal';
 import { saveRecord as apiSaveRecord, deleteRecord as apiDeleteRecord } from '../../../lib/api';
+import { getNowISO } from '../../../utils/dateUtils';
 
 export const UsoApp: React.FC = () => {
   const navigate = useNavigate();
@@ -113,7 +115,7 @@ export const UsoApp: React.FC = () => {
         const updateData = {
           ...editingRecord,
           ...formData,
-          updatedAt: new Date().toISOString(),
+          updatedAt: getNowISO(),
           updatedBy: user.email || 'Desconocido'
         };
         await apiSaveRecord('transfusionUse', updateData, user.email || 'Desconocido');
@@ -121,7 +123,7 @@ export const UsoApp: React.FC = () => {
       } else {
         const fullRecord = {
           ...formData,
-          createdAt: new Date().toISOString(),
+          createdAt: getNowISO(),
           uid: user.uid,
           userEmail: user.email || 'Desconocido'
         };

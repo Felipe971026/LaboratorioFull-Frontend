@@ -1,5 +1,6 @@
 import React from 'react';
 import { BloodTestRecord } from '../types';
+import { formatColombia } from '../../../utils/dateUtils';
 import { FileText, Download, User, Calendar, Droplets, Eye, Trash2, Edit2, CheckCircle, RotateCcw } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -15,9 +16,10 @@ interface RecordCardProps {
   currentUserUid?: string;
   isAdmin?: boolean;
   isUsed?: boolean;
+  isReserved?: boolean;
 }
 
-export const RecordCard: React.FC<RecordCardProps> = ({ record, onView, onDelete, onEdit, onAccept, onReturn, currentUserUid, isAdmin, isUsed }) => {
+export const RecordCard: React.FC<RecordCardProps> = ({ record, onView, onDelete, onEdit, onAccept, onReturn, currentUserUid, isAdmin, isUsed, isReserved }) => {
   const canDelete = isAdmin;
   const canEdit = isAdmin;
 
@@ -76,7 +78,7 @@ export const RecordCard: React.FC<RecordCardProps> = ({ record, onView, onDelete
         </div>
         <div className="flex items-center gap-2 text-zinc-600">
           <Calendar size={14} className="text-zinc-400" />
-          <span>{format(new Date(record.testDate), 'dd/MM/yyyy HH:mm')}</span>
+          <span>{formatColombia(record.testDate)}</span>
         </div>
         <div className="flex items-center gap-2 text-zinc-600">
           <User size={14} className="text-zinc-400" />
@@ -106,9 +108,13 @@ export const RecordCard: React.FC<RecordCardProps> = ({ record, onView, onDelete
               <span className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-orange-100 text-orange-700">
                 Devuelta
               </span>
-            ) : isUsed !== undefined && (
-              <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${isUsed ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                {isUsed ? 'Utilizada' : 'Disponible'}
+            ) : (
+              <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
+                isUsed ? 'bg-blue-100 text-blue-700' : 
+                isReserved ? 'bg-orange-100 text-orange-700' : 
+                'bg-green-100 text-green-700'
+              }`}>
+                {isUsed ? 'Utilizada' : isReserved ? 'Reservada' : 'Disponible'}
               </span>
             )}
             {record.acceptedBy && !record.returned && (
@@ -133,7 +139,13 @@ export const RecordCard: React.FC<RecordCardProps> = ({ record, onView, onDelete
           {!record.acceptedBy && !record.returned && onAccept && (
             <button
               onClick={(e) => { e.stopPropagation(); onAccept(record); }}
-              className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-xs font-bold transition-colors"
+              disabled={isReserved}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                isReserved 
+                ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed opacity-70' 
+                : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+              }`}
+              title={isReserved ? "Esta unidad ya está reservada para otro paciente" : "Aceptar unidad"}
             >
               <CheckCircle size={14} />
               Aceptar

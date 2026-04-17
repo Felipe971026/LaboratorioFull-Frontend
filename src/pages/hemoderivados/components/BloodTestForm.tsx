@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { BloodTestRecord, ReceivedUnitRecord } from '../types';
 import { generateInterpretation } from '../utils/bloodTestUtils';
 import { PROFESSIONALS } from '../../../constants';
+import { getColombiaISO, getNowISO } from '../../../utils/dateUtils';
 import { Save, User, IdCard, Calendar, Droplets, ShieldCheck, UserCheck, FileText, Activity, AlertTriangle, MapPin, Hash, CheckCircle, XCircle, Search, Package } from 'lucide-react';
 
 interface BloodTestFormProps {
@@ -28,8 +30,8 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
   const [formData, setFormData] = useState<Partial<BloodTestRecord>>(initialData || {
     bloodGroup: 'O',
     rh: '+',
-    testDate: new Date().toISOString().slice(0, 19), // YYYY-MM-DDTHH:mm:ss
-    result: 'Compatible',
+    testDate: getColombiaISO(), // Usar hora de Colombia
+    result: '',
     patientName: '',
     patientId: '',
     eps: '',
@@ -99,6 +101,8 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
   const [unitValidationMessage, setUnitValidationMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
   const [searchingPatient, setSearchingPatient] = useState(false);
   const [searchingUnit, setSearchingUnit] = useState(false);
+  const [patientFound, setPatientFound] = useState(false);
+  const [unitFound, setUnitFound] = useState(false);
 
   useEffect(() => {
     if (initialData) {
@@ -134,8 +138,10 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
         bloodGroup: latestRecord.bloodGroup || 'O',
         rh: latestRecord.rh || '+',
       }));
+      setPatientFound(true);
       setValidationMessage({ text: 'Paciente encontrado. Datos cargados.', type: 'success' });
     } else {
+      setPatientFound(false);
       setAlertMessage(`NOVEDAD: El paciente con ID "${patientId}" no se encuentra en los registros previos.`);
     }
     
@@ -155,16 +161,34 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
     await new Promise(resolve => setTimeout(resolve, 500));
 
     const unitRecord = receivedUnits.find(u => u.unitId === unitId || u.qualitySeal === unitId);
-    const isUsed = transfusionRecords.some(t => t.unitId === unitId || t.qualitySeal === unitId) ||
-                   dispositionRecords.some(d => d.unitId === unitId || d.qualitySeal === unitId);
-    const isReturned = existingRecords.some(r => (r.unitId === unitId || r.qualitySeal === unitId) && r.returned);
+    
+    // A unit is blocked if it's already used in transfusion/disposition 
+    // OR if it has an active (accepted and not returned) cross-match record
+    const isTransfusedOrDisposed = transfusionRecords.some(t => t.unitId === unitId || t.qualitySeal === unitId) ||
+                                  dispositionRecords.some(d => d.unitId === unitId || d.qualitySeal === unitId);
+    
+    const hasActiveCrossmatch = existingRecords.some(r => 
+      (r.unitId === unitId || r.qualitySeal === unitId) && 
+      r.acceptedBy && 
+      !r.returned
+    );
 
     if (unitRecord) {
-      if (isUsed && !isReturned) {
+      if (isTransfusedOrDisposed) {
         setAlertMessage(`NOVEDAD: La unidad "${unitId}" ya ha sido UTILIZADA o tiene una DISPOSICIÓN FINAL.`);
-        setUnitValidationMessage({ text: 'Unidad no disponible (Ya utilizada)', type: 'error' });
+        setUnitValidationMessage({ text: 'Unidad no disponible (Utilizada)', type: 'error' });
         return;
       }
+      
+      if (hasActiveCrossmatch) {
+        setUnitValidationMessage({ 
+          text: 'Unidad con reserva activa. Se permite crear la prueba pero no podrá aceptarse hasta que la bolsa se devuelva.', 
+          type: 'success' 
+        });
+      } else {
+        setUnitValidationMessage({ text: 'Unidad encontrada en Recepción. Datos cargados.', type: 'success' });
+      }
+
       setFormData(prev => ({
         ...prev,
         unitGroup: unitRecord.bloodGroup,
@@ -174,8 +198,9 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
         requestedHemoderivative: unitRecord.hemoderivativeType,
         qualitySeal: unitRecord.qualitySeal || prev.qualitySeal,
       }));
-      setUnitValidationMessage({ text: 'Unidad encontrada en Recepción. Datos cargados.', type: 'success' });
+      setUnitFound(true);
     } else {
+      setUnitFound(false);
       setAlertMessage(`NOVEDAD: La unidad "${unitId}" no se encuentra en los registros de RECEPCIÓN.`);
     }
     
@@ -189,7 +214,7 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
       patientName: finalPatientName,
       patientId: formData.patientId?.trim() || '',
       userEmail: userEmail || '',
-      createdAt: new Date().toISOString(),
+      createdAt: getNowISO(),
     };
 
     onSave(newRecord);
@@ -197,8 +222,8 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
     setFormData({
       bloodGroup: 'O',
       rh: '+',
-      testDate: new Date().toISOString().slice(0, 19),
-      result: 'Compatible',
+      testDate: getColombiaISO(),
+      result: '',
       patientName: '',
       patientId: '',
       eps: '',
@@ -250,29 +275,18 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
       }
     }
 
-    // Validate Unit Reuse
-    const isUnitAlreadyTransfused = existingRecords.some(record => {
-      if (record.id === formData.id) return false;
-      
-      const sameUnitId = formData.unitId && record.unitId === formData.unitId;
-      const sameQualitySeal = formData.qualitySeal && record.qualitySeal === formData.qualitySeal;
-      
-      const isTransfusedOrUrgent = record.requestType === 'Transfusion' || record.requestType === 'Urgencia Vital';
-      const isReturned = record.returned === true;
-      
-      return (sameUnitId || sameQualitySeal) && isTransfusedOrUrgent && !isReturned;
-    });
-
-    if (isUnitAlreadyTransfused) {
-      setAlertMessage('El Número de Unidad o Sello de Calidad ya ha sido utilizado (Transfusión o Urgencia Vital) y está bloqueado. No puede ser utilizado para nuevas reservas ni transfusiones.');
-      return;
-    }
+    // Validate Unit Reuse - No longer blocking, just ensuring logic consistency
+    // We allow multiple tests for the same unit as requested by user.
+    // The actual block happens in PreTransfusionalApp when trying to "Accept" a unit already reserved by someone else.
 
     proceedToSave(patientNameUpper);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+    if (name === 'patientId') setPatientFound(false);
+    if (name === 'unitId') setUnitFound(false);
+    
     setFormData(prev => {
       const updated = { 
         ...prev, 
@@ -342,10 +356,6 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
         </h3>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="space-y-2 md:col-span-2">
-            <label className="text-xs font-medium text-zinc-700">Nombre del Paciente *</label>
-            <input type="text" name="patientName" value={formData.patientName} onChange={handleChange} required className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" placeholder="Nombre completo" />
-          </div>
           <div className="space-y-2">
             <label className="text-xs font-medium text-zinc-700">CC / Identificación *</label>
             <div className="flex gap-2">
@@ -366,23 +376,137 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
               </p>
             )}
           </div>
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-xs font-medium text-zinc-700">Nombre del Paciente *</label>
+            <input type="text" name="patientName" value={formData.patientName} onChange={handleChange} required readOnly={patientFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${patientFound ? 'bg-zinc-50 text-zinc-500' : ''}`} placeholder="Nombre completo" />
+          </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div className="space-y-2">
             <label className="text-xs font-medium text-zinc-700">EPS</label>
-            <input type="text" name="eps" value={formData.eps} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" placeholder="Ej: PARTICULAR" />
+            <input type="text" name="eps" value={formData.eps} onChange={handleChange} readOnly={patientFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${patientFound ? 'bg-zinc-50 text-zinc-500' : ''}`} placeholder="Ej: PARTICULAR" />
           </div>
           <div className="space-y-2">
             <label className="text-xs font-medium text-zinc-700">Edad</label>
-            <input type="text" name="age" value={formData.age} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" placeholder="Ej: 68 A" />
+            <input type="text" name="age" value={formData.age} onChange={handleChange} readOnly={patientFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${patientFound ? 'bg-zinc-50 text-zinc-500' : ''}`} placeholder="Ej: 68 A" />
           </div>
           <div className="space-y-2">
             <label className="text-xs font-medium text-zinc-700">Sexo</label>
-            <select name="gender" value={formData.gender} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm">
+            <select name="gender" value={formData.gender} onChange={handleChange} disabled={patientFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${patientFound ? 'bg-zinc-50 text-zinc-500 cursor-not-allowed' : ''}`}>
               <option value="M">M</option>
               <option value="F">F</option>
               <option value="Otro">Otro</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-2 gap-4 bg-zinc-50 p-3 rounded-xl border border-zinc-100">
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-600">Grupo del Paciente</label>
+            <select name="bloodGroup" value={formData.bloodGroup} onChange={handleChange} disabled={patientFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${patientFound ? 'bg-zinc-50 text-zinc-500 cursor-not-allowed' : ''}`}>
+              <option value="A">A</option><option value="B">B</option><option value="AB">AB</option><option value="O">O</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-600">Rh del Paciente</label>
+            <select name="rh" value={formData.rh} onChange={handleChange} disabled={patientFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${patientFound ? 'bg-zinc-50 text-zinc-500 cursor-not-allowed' : ''}`}>
+              <option value="+">POSITIVO (+)</option><option value="-">NEGATIVO (-)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Unit Info Section - MOVING UP as requested */}
+      <div className="space-y-4 pt-4 border-t border-zinc-100">
+        <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+          <Package size={16} /> Información de la Unidad (Bolsa)
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-700">Número de Unidad *</label>
+            <div className="flex gap-2 items-center">
+              <input 
+                type="text" 
+                name="unitId" 
+                value={formData.unitId} 
+                onChange={handleChange} 
+                required
+                className="flex-1 min-w-0 px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm font-mono" 
+                placeholder="Ej: 2331044178" 
+              />
+              <button 
+                type="button" 
+                onClick={handleValidateUnit}
+                disabled={searchingUnit}
+                className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium disabled:opacity-50 h-[38px]"
+                title="Validar en Recepción"
+              >
+                <Search size={14} className={searchingUnit ? 'animate-spin' : ''} />
+                {searchingUnit ? '...' : 'Validar'}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-700">Sello de Calidad</label>
+            <input type="text" name="qualitySeal" value={formData.qualitySeal} onChange={handleChange} readOnly={unitFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm font-mono ${unitFound ? 'bg-zinc-50 text-zinc-500' : ''}`} placeholder="Ej: SC-12345" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-700">Fecha de Vencimiento Unidad</label>
+            <input type="date" name="unitExpirationDate" value={formData.unitExpirationDate} onChange={handleChange} readOnly={unitFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${unitFound ? 'bg-zinc-50 text-zinc-500' : ''}`} />
+          </div>
+          
+          {unitValidationMessage && (
+            <div className="md:col-span-3">
+              <p className={`text-xs flex items-center gap-1 ${unitValidationMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                {unitValidationMessage.type === 'success' ? <CheckCircle size={12} /> : <XCircle size={12} />}
+                {unitValidationMessage.text}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-700">Proveedor</label>
+            <select name="provider" value={formData.provider} onChange={handleChange} disabled={unitFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${unitFound ? 'bg-zinc-50 text-zinc-500 cursor-not-allowed' : ''}`}>
+              <option value="Hemolife">Hemolife</option>
+              <option value="Hemocentro">Hemocentro</option>
+              <option value="FUHECO">FUHECO</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-700">Hemoderivado Solicitado</label>
+            <select name="requestedHemoderivative" value={formData.requestedHemoderivative} onChange={handleChange} disabled={unitFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${unitFound ? 'bg-zinc-50 text-zinc-500 cursor-not-allowed' : ''}`}>
+              <option value="Globulos Rojos">Glóbulos Rojos</option>
+              <option value="Plasma Fresco Congelado">Plasma Fresco Congelado</option>
+              <option value="Plaquetas (Estándar)">Plaquetas (Estándar)</option>
+              <option value="Plaquetas AFERESIS">Plaquetas AFERESIS</option>
+              <option value="Crioprecipitado">Crioprecipitado</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-700">Tipo de Solicitud</label>
+            <select name="requestType" value={formData.requestType} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm">
+              <option value="Reserva">Reserva</option>
+              <option value="Transfusion">Transfusion</option>
+              <option value="Urgencia Vital">Urgencia Vital</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-2 gap-4 bg-zinc-50 p-3 rounded-xl border border-zinc-100">
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-600">Grupo de la Unidad</label>
+            <select name="unitGroup" value={formData.unitGroup} onChange={handleChange} disabled={unitFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${unitFound ? 'bg-zinc-50 text-zinc-500 cursor-not-allowed' : ''}`}>
+              <option value="A">A</option><option value="B">B</option><option value="AB">AB</option><option value="O">O</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-600">Rh de la Unidad</label>
+            <select name="unitRh" value={formData.unitRh} onChange={handleChange} disabled={unitFound} className={`w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm ${unitFound ? 'bg-zinc-50 text-zinc-500 cursor-not-allowed' : ''}`}>
+              <option value="+">POSITIVO (+)</option><option value="-">NEGATIVO (-)</option>
             </select>
           </div>
         </div>
@@ -394,93 +518,10 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
           <Activity size={16} /> Detalles del Examen
         </h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
           <div className="space-y-2">
             <label className="text-xs font-medium text-zinc-700">Fecha y Hora del Examen *</label>
             <input type="datetime-local" step="1" name="testDate" value={formData.testDate} onChange={handleChange} required className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" />
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-700">Resultado Final *</label>
-            <select 
-              name="result" 
-              value={formData.result} 
-              onChange={handleChange} 
-              required 
-              disabled={formData.requestedHemoderivative !== 'Globulos Rojos'}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm font-bold ${formData.result === 'Compatible' ? 'bg-green-50 text-green-700 border-green-200' : formData.result === 'Unidad disponible' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-red-50 text-red-700 border-red-200'}`}
-            >
-              <option value="Compatible">COMPATIBLE</option>
-              <option value="Incompatible">INCOMPATIBLE</option>
-              <option value="Unidad disponible">UNIDAD DISPONIBLE</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-zinc-50 p-4 rounded-xl border border-zinc-100">
-          {/* Patient Blood Group */}
-          <div className="space-y-4">
-            <h4 className="text-xs font-bold text-zinc-700 uppercase">Grupo del Paciente</h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-zinc-600">Grupo</label>
-                <select name="bloodGroup" value={formData.bloodGroup} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm">
-                  <option value="A">A</option><option value="B">B</option><option value="AB">AB</option><option value="O">O</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-zinc-600">Rh</label>
-                <select name="rh" value={formData.rh} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm">
-                  <option value="+">POSITIVO (+)</option><option value="-">NEGATIVO (-)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Unit Blood Group */}
-          <div className="space-y-4">
-            <h4 className="text-xs font-bold text-zinc-700 uppercase">Grupo de la Unidad</h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-zinc-600">Grupo</label>
-                <select name="unitGroup" value={formData.unitGroup} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm">
-                  <option value="A">A</option><option value="B">B</option><option value="AB">AB</option><option value="O">O</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-zinc-600">Rh</label>
-                <select name="unitRh" value={formData.unitRh} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm">
-                  <option value="+">POSITIVO (+)</option><option value="-">NEGATIVO (-)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-700">Proveedor</label>
-            <select name="provider" value={formData.provider} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm">
-              <option value="Hemolife">Hemolife</option>
-              <option value="Hemocentro">Hemocentro</option>
-              <option value="FUHECO">FUHECO</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-700">Hemoderivado Solicitado</label>
-            <select name="requestedHemoderivative" value={formData.requestedHemoderivative} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm">
-              <option value="Globulos Rojos">Glóbulos Rojos</option>
-              <option value="Plasma Fresco Congelado">Plasma Fresco Congelado</option>
-              <option value="Plaquetas (Estándar)">Plaquetas (Estándar)</option>
-              <option value="Plaquetas AFERESIS">Plaquetas AFERESIS</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-700">Tipo de Solicitud</label>
-            <select name="requestType" value={formData.requestType} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm">
-              <option value="Reserva">Reserva</option>
-              <option value="Transfusion">Transfusion</option>
-              <option value="Urgencia Vital">Urgencia Vital</option>
-            </select>
           </div>
         </div>
 
@@ -537,47 +578,7 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-700">Número de Unidad</label>
-            <div className="flex gap-2 items-center">
-              <input 
-                type="text" 
-                name="unitId" 
-                value={formData.unitId} 
-                onChange={handleChange} 
-                className="flex-1 min-w-0 px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm font-mono" 
-                placeholder="Ej: 2331044178" 
-              />
-              <button 
-                type="button" 
-                onClick={handleValidateUnit}
-                disabled={searchingUnit}
-                className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg transition-colors flex items-center gap-1 text-xs font-medium disabled:opacity-50 h-[38px]"
-                title="Validar en Recepción"
-              >
-                <Search size={14} className={searchingUnit ? 'animate-spin' : ''} />
-                {searchingUnit ? '...' : 'Validar'}
-              </button>
-            </div>
-            {unitValidationMessage && (
-              <p className={`text-xs mt-1 flex items-center gap-1 ${unitValidationMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                {unitValidationMessage.type === 'success' ? <CheckCircle size={12} /> : <XCircle size={12} />}
-                {unitValidationMessage.text}
-              </p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-700">Sello de Calidad</label>
-            <input type="text" name="qualitySeal" value={formData.qualitySeal} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm font-mono" placeholder="Ej: SC-12345" readOnly={formData.provider === 'Hemocentro'} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-700">Fecha de Vencimiento Unidad</label>
-            <input type="date" name="unitExpirationDate" value={formData.unitExpirationDate} onChange={handleChange} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" />
-          </div>
-        </div>
-
-        <div className="space-y-4 pt-4">
+        <div className="space-y-4 pt-4 border-t border-zinc-50">
           <h4 className="text-xs font-bold text-zinc-700 uppercase">Rastreo de Anticuerpos Irregulares</h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
@@ -607,6 +608,33 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
             </div>
           </div>
         </div>
+
+        {/* RESULTADO FINAL MOVING TO THE END */}
+        <div className="space-y-2 pt-4 border-t border-zinc-100">
+          <label className="text-xs font-bold text-zinc-700 uppercase tracking-wider flex items-center gap-2">
+            <ShieldCheck size={16} className="text-red-600" /> Resultado Final del Cruce *
+          </label>
+          <select 
+            name="result" 
+            value={formData.result} 
+            onChange={handleChange} 
+            required 
+            className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-base font-bold transition-all ${
+              formData.result === 'Compatible' 
+              ? 'bg-green-50 text-green-700 border-green-200' 
+              : formData.result === 'Unidad disponible' 
+              ? 'bg-blue-50 text-blue-700 border-blue-200' 
+              : formData.result === 'Incompatible'
+              ? 'bg-red-50 text-red-700 border-red-200'
+              : 'bg-white border-zinc-200 text-zinc-400'
+            }`}
+          >
+            <option value="">SELECCIONE RESULTADO...</option>
+            <option value="Compatible">COMPATIBLE</option>
+            <option value="Incompatible">INCOMPATIBLE</option>
+            <option value="Unidad disponible">UNIDAD DISPONIBLE</option>
+          </select>
+        </div>
       </div>
 
       {/* Interpretation Section */}
@@ -615,8 +643,8 @@ export const BloodTestForm: React.FC<BloodTestFormProps> = ({
           <FileText size={16} /> Interpretación
         </h3>
         
-        <div className="p-4 bg-blue-50 text-blue-800 rounded-xl text-sm italic border border-blue-100">
-          {generateInterpretation(formData)}
+        <div className="p-4 bg-blue-50 text-blue-800 rounded-xl text-sm italic border border-blue-100 min-h-[50px]">
+          {formData.result ? generateInterpretation(formData) : 'Seleccione el resultado final para ver la interpretación.'}
         </div>
       </div>
 

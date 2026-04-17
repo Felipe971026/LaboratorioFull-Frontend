@@ -1,5 +1,7 @@
+
 import React, { useState } from 'react';
 import { FinalDispositionRecord, ReceivedUnitRecord } from '../types';
+import { getColombiaDateString } from '../../../utils/dateUtils';
 import { Save, AlertCircle, Trash2, Truck, CheckCircle, Search, AlertTriangle } from 'lucide-react';
 import { db } from '../../../firebase';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
@@ -14,7 +16,7 @@ export const DisposicionForm: React.FC<DisposicionFormProps> = ({ onSubmit, isSu
   const [formData, setFormData] = useState({
     unitId: initialData?.unitId || '',
     qualitySeal: initialData?.qualitySeal || '',
-    dispositionDate: initialData?.dispositionDate || new Date().toISOString().split('T')[0],
+    dispositionDate: initialData?.dispositionDate || getColombiaDateString(),
     dispositionType: initialData?.dispositionType || '' as FinalDispositionRecord['dispositionType'],
     reason: initialData?.reason || '',
     responsiblePerson: initialData?.responsiblePerson || '',

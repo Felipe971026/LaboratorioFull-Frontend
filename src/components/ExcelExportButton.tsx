@@ -1,6 +1,8 @@
+
 import React, { useState } from 'react';
 import { FileSpreadsheet, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { formatColombia, getColombiaDateString } from '../utils/dateUtils';
 import { db } from '../firebase';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 
@@ -64,7 +66,9 @@ export const ExcelExportButton: React.FC<ExcelExportButtonProps> = ({
                     value = docData[key];
                     // Handle Firestore Timestamps
                     if (value && typeof value === 'object' && typeof value.toDate === 'function') {
-                      value = value.toDate().toLocaleString();
+                      value = formatColombia(value.toDate());
+                    } else if (typeof value === 'string' && (key.endsWith('At') || key === 'createdAt' || key === 'updatedAt' || key === 'testDate')) {
+                      value = formatColombia(value);
                     }
                   }
 
@@ -100,9 +104,11 @@ export const ExcelExportButton: React.FC<ExcelExportButtonProps> = ({
               Object.keys(docData).forEach(key => {
                 let value = docData[key];
                 
-                // Handle Firestore Timestamps
+                // Handle Firestore Timestamps and date strings
                 if (value && typeof value === 'object' && typeof value.toDate === 'function') {
-                  flattened[key] = value.toDate().toLocaleString();
+                  flattened[key] = formatColombia(value.toDate());
+                } else if (typeof value === 'string' && (key.endsWith('At') || key === 'createdAt' || key === 'updatedAt' || key === 'testDate')) {
+                  flattened[key] = formatColombia(value);
                 } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
                   Object.keys(value).forEach(subKey => {
                     flattened[`${key}_${subKey}`] = value[subKey];
@@ -124,7 +130,7 @@ export const ExcelExportButton: React.FC<ExcelExportButtonProps> = ({
         }
       }
 
-      XLSX.writeFile(wb, `${filename}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(wb, `${filename}_${getColombiaDateString()}.xlsx`);
     } catch (error) {
       console.error('Error exporting to Excel:', error);
     } finally {

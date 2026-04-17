@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { ReceivedUnitRecord } from '../types';
 import { Package, Calendar, Droplets, CheckCircle, XCircle, Trash2, User, Eye, X, Thermometer, Info, ClipboardCheck, UserCheck, Edit2, AlertTriangle } from 'lucide-react';
@@ -6,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 interface RecepcionRecordCardProps {
   record: ReceivedUnitRecord;
   isUsed?: boolean;
+  isReserved?: boolean;
   onDelete: (id: string) => void;
   onEdit?: (record: ReceivedUnitRecord) => void;
   onReclassify?: (record: ReceivedUnitRecord) => void;
@@ -13,14 +15,18 @@ interface RecepcionRecordCardProps {
   isAdmin?: boolean;
 }
 
-export const RecepcionRecordCard: React.FC<RecepcionRecordCardProps> = ({ record, isUsed, onDelete, onEdit, onReclassify, currentUserUid, isAdmin }) => {
+export const RecepcionRecordCard: React.FC<RecepcionRecordCardProps> = ({ record, isUsed, isReserved, onDelete, onEdit, onReclassify, currentUserUid, isAdmin }) => {
   const [showDetails, setShowDetails] = useState(false);
   const isOwner = currentUserUid === record.uid;
   const canDelete = isAdmin;
   const canEdit = isAdmin;
 
   return (
-    <div className="bg-white rounded-3xl p-6 shadow-sm border border-zinc-100 hover:shadow-md transition-shadow relative">
+    <div className={`rounded-3xl p-6 shadow-sm border border-zinc-100 hover:shadow-md transition-shadow relative ${
+      isUsed ? 'bg-red-50/50' : 
+      isReserved ? 'bg-amber-50/50' : 
+      'bg-white'
+    }`}>
       <div className="absolute top-6 right-6 flex items-center gap-2">
         <button
           onClick={() => setShowDetails(true)}
@@ -92,8 +98,12 @@ export const RecepcionRecordCard: React.FC<RecepcionRecordCardProps> = ({ record
               </span>
             )}
             {record.accepted === 'Sí' && (
-              <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${isUsed ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                {isUsed ? 'Utilizada' : 'Disponible'}
+              <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
+                isUsed ? 'bg-blue-100 text-blue-700' : 
+                isReserved ? 'bg-orange-100 text-orange-700' : 
+                'bg-green-100 text-green-700'
+              }`}>
+                {isUsed ? 'Utilizada' : isReserved ? 'Reservada' : 'Disponible'}
               </span>
             )}
             {record.accepted === 'Sí' ? (

@@ -1,5 +1,7 @@
+
 import React, { useState } from 'react';
 import { TransfusionUseRecord, ReceivedUnitRecord, BloodTestRecord } from '../types';
+import { getColombiaDateString } from '../../../utils/dateUtils';
 import { Save, AlertCircle, Clock, Thermometer, Activity, Search, User, Package, AlertTriangle } from 'lucide-react';
 import { db } from '../../../firebase';
 import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
@@ -20,9 +22,9 @@ export const UsoForm: React.FC<UsoFormProps> = ({ onSubmit, isSubmitting, initia
     hemoderivativeType: initialData?.hemoderivativeType || '',
     bloodGroup: initialData?.bloodGroup || '',
     rh: initialData?.rh || '',
-    orderDate: initialData?.orderDate || new Date().toISOString().split('T')[0],
+    orderDate: initialData?.orderDate || getColombiaDateString(),
     orderTime: initialData?.orderTime || '',
-    transfusionDate: initialData?.transfusionDate || new Date().toISOString().split('T')[0],
+    transfusionDate: initialData?.transfusionDate || getColombiaDateString(),
     transfusionTime: initialData?.transfusionTime || '',
     opportunity: initialData?.opportunity || '',
     qualitySeal: initialData?.qualitySeal || '',
