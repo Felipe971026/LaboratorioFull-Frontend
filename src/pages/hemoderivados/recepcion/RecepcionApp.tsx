@@ -299,17 +299,8 @@ export const RecepcionApp: React.FC = () => {
     const isTransfused = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
                         dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
     
-    // An active cross-match blocks the unit too
-    const hasActiveCrossmatch = bloodTestRecords.some(r => 
-      (r.unitId === record.unitId || r.qualitySeal === record.qualitySeal) && 
-      r.acceptedBy && 
-      !r.returned
-    );
-    
-    const isUsed = isTransfused || hasActiveCrossmatch;
-    
-    if (filter === 'available') return !isUsed;
-    if (filter === 'used') return isUsed;
+    if (filter === 'available') return !isTransfused;
+    if (filter === 'used') return isTransfused;
     return true;
   });
 
@@ -541,19 +532,19 @@ export const RecepcionApp: React.FC = () => {
                       const isTransfused = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
                                           dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
                       
-                      const hasActiveCrossmatch = bloodTestRecords.some(r => 
+                      const isReserved = bloodTestRecords.some(r => 
                         (r.unitId === record.unitId || r.qualitySeal === record.qualitySeal) && 
                         r.acceptedBy && 
-                        !r.returned
+                        !r.returned &&
+                        !isTransfused
                       );
-
-                      const isUsed = isTransfused || hasActiveCrossmatch;
 
                       return (
                         <RecepcionRecordCard
                           key={record.id}
                           record={record}
-                          isUsed={isUsed}
+                          isUsed={isTransfused}
+                          isReserved={isReserved}
                           onDelete={handleDeleteClick}
                           onEdit={handleEdit}
                           onReclassify={handleReclassifyClick}
