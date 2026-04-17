@@ -15,9 +15,10 @@ interface RecordCardProps {
   currentUserUid?: string;
   isAdmin?: boolean;
   isUsed?: boolean;
+  isReserved?: boolean;
 }
 
-export const RecordCard: React.FC<RecordCardProps> = ({ record, onView, onDelete, onEdit, onAccept, onReturn, currentUserUid, isAdmin, isUsed }) => {
+export const RecordCard: React.FC<RecordCardProps> = ({ record, onView, onDelete, onEdit, onAccept, onReturn, currentUserUid, isAdmin, isUsed, isReserved }) => {
   const canDelete = isAdmin;
   const canEdit = isAdmin;
 
@@ -106,9 +107,13 @@ export const RecordCard: React.FC<RecordCardProps> = ({ record, onView, onDelete
               <span className="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider bg-orange-100 text-orange-700">
                 Devuelta
               </span>
-            ) : isUsed !== undefined && (
-              <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${isUsed ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                {isUsed ? 'Utilizada' : 'Disponible'}
+            ) : (
+              <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
+                isUsed ? 'bg-blue-100 text-blue-700' : 
+                isReserved ? 'bg-orange-100 text-orange-700' : 
+                'bg-green-100 text-green-700'
+              }`}>
+                {isUsed ? 'Utilizada' : isReserved ? 'Reservada' : 'Disponible'}
               </span>
             )}
             {record.acceptedBy && !record.returned && (
