@@ -1,15 +1,17 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BloodTestForm } from '../components/BloodTestForm';
 import { generateInterpretation } from '../utils/bloodTestUtils';
 import { RecordCard } from '../components/RecordCard';
 import { BloodTestRecord } from '../types';
-import { Droplets, History, Plus, Search, LogIn, LogOut, User as UserIcon, ShieldCheck, X, FileText, Calendar, UserCheck, Activity, AlertTriangle, ArrowLeft, CheckCircle, RotateCcw } from 'lucide-react';
+import { Droplets, History, Plus, Search, LogIn, LogOut, User as UserIcon, ShieldCheck, X, FileText, Calendar, UserCheck, Activity, AlertTriangle, ArrowLeft, CheckCircle, RotateCcw, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db, loginWithGoogle, logout, handleFirestoreError, OperationType } from '../../../firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
 import { saveRecord as apiSaveRecord, deleteRecord as apiDeleteRecord } from '../../../lib/api';
+import { getNowISO } from '../../../utils/dateUtils';
 
 export const PreTransfusionalApp: React.FC = () => {
   const navigate = useNavigate();
@@ -31,6 +33,10 @@ export const PreTransfusionalApp: React.FC = () => {
   const [acceptPerson, setAcceptPerson] = useState('');
   const [recordToReturn, setRecordToReturn] = useState<BloodTestRecord | null>(null);
   const [returnComment, setReturnComment] = useState('');
+
+  const [patientToEdit, setPatientToEdit] = useState<{ id: string, name: string } | null>(null);
+  const [newPatientName, setNewPatientName] = useState('');
+  const [newPatientId, setNewPatientId] = useState('');
 
   const [isSystemUnlocked, setIsSystemUnlocked] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -168,7 +174,7 @@ export const PreTransfusionalApp: React.FC = () => {
         const updateData = {
           ...editingRecord,
           ...recordData,
-          updatedAt: new Date().toISOString(),
+          updatedAt: getNowISO(),
           updatedBy: user.email || user.uid,
         };
         await apiSaveRecord(path, updateData, user.email || 'Desconocido');
@@ -179,7 +185,7 @@ export const PreTransfusionalApp: React.FC = () => {
           status: 'Pendiente',
           uid: user.uid,
           userEmail: user.email || '',
-          createdAt: new Date().toISOString(),
+          createdAt: getNowISO(),
         };
         await apiSaveRecord(path, newRecord, user.email || 'Desconocido');
       }
@@ -224,8 +230,8 @@ export const PreTransfusionalApp: React.FC = () => {
         ...recordToAccept,
         status: 'Disponible',
         acceptedBy: acceptPerson,
-        acceptedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        acceptedAt: getNowISO(),
+        updatedAt: getNowISO(),
         updatedBy: user?.email || user?.uid,
       };
       await apiSaveRecord(path, updateData, user?.email || 'Desconocido');
@@ -244,8 +250,8 @@ export const PreTransfusionalApp: React.FC = () => {
         ...recordToReturn,
         returned: true,
         returnComment: returnComment,
-        returnedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        returnedAt: getNowISO(),
+        updatedAt: getNowISO(),
         updatedBy: user?.email || user?.uid,
       };
       await apiSaveRecord(path, updateData, user?.email || 'Desconocido');
@@ -253,6 +259,41 @@ export const PreTransfusionalApp: React.FC = () => {
       setReturnComment('');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  };
+
+  const handleUpdatePatient = async () => {
+    if (!patientToEdit || !newPatientName || !newPatientId) return;
+    setIsSyncing(true);
+    const path = 'bloodTestRecords';
+    try {
+      // Find all records with matching ID OR matching Name (to be safe with previous registration errors)
+      const affectedRecords = records.filter(r => 
+        r.patientId === patientToEdit.id || 
+        r.patientName.toUpperCase().trim() === patientToEdit.name.toUpperCase().trim()
+      );
+
+      // We need to update each document in Firestore
+      // Using Promise.all for simplicity
+      await Promise.all(affectedRecords.map(record => {
+        const updateData = {
+          ...record,
+          patientName: newPatientName.toUpperCase().trim(),
+          patientId: newPatientId.trim(),
+          updatedAt: getNowISO(),
+          updatedBy: user?.email || user?.uid,
+        };
+        return apiSaveRecord(path, updateData, user?.email || 'Desconocido');
+      }));
+
+      setPatientToEdit(null);
+      setNewPatientName('');
+      setNewPatientId('');
+    } catch (error) {
+      console.error('Error updating patient info:', error);
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -340,10 +381,6 @@ export const PreTransfusionalApp: React.FC = () => {
           <div className="flex items-center gap-4">
             {user && isSystemUnlocked ? (
               <>
-                <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-zinc-100 rounded-full text-sm text-zinc-600">
-                  <UserIcon size={16} />
-                  <span className="font-medium">LVALERIANO</span>
-                </div>
                 <button
                   onClick={showForm ? () => setShowForm(false) : handleNewRecord}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all ${
@@ -514,34 +551,51 @@ export const PreTransfusionalApp: React.FC = () => {
                         transition={{ delay: idx * 0.05 }}
                         className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm"
                       >
-                        <div className="flex items-center gap-3 mb-6 border-b border-zinc-100 pb-4">
-                          <div className="bg-zinc-100 p-3 rounded-xl">
-                            <UserIcon className="text-zinc-600" size={24} />
+                        <div className="flex items-center justify-between mb-6 border-b border-zinc-100 pb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="bg-zinc-100 p-3 rounded-xl">
+                              <UserIcon className="text-zinc-600" size={24} />
+                            </div>
+                            <div>
+                              <h3 className="text-xl font-bold text-zinc-900">{group.patientName}</h3>
+                              <p className="text-sm text-zinc-500 font-medium">
+                                ID: {group.patientId} • Grupo: <span className="text-red-600 font-bold">{group.bloodGroup}{group.rh}</span>
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <h3 className="text-xl font-bold text-zinc-900">{group.patientName}</h3>
-                            <p className="text-sm text-zinc-500 font-medium">
-                              ID: {group.patientId} • Grupo: <span className="text-red-600 font-bold">{group.bloodGroup}{group.rh}</span>
-                            </p>
-                          </div>
+
+                          <button
+                            onClick={() => {
+                              setPatientToEdit({ id: group.patientId, name: group.patientName });
+                              setNewPatientName(group.patientName);
+                              setNewPatientId(group.patientId);
+                            }}
+                            className="p-2 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                            title="Editar información del paciente"
+                          >
+                            <Edit2 size={18} />
+                          </button>
                         </div>
 
                         <div className="space-y-8">
-                          {Object.entries(group.hemoderivativeGroups).map(([hemoType, records]) => (
+                          {Object.entries(group.hemoderivativeGroups).map(([hemoType, typeRecords]) => (
                             <div key={hemoType} className="space-y-4">
                               <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 flex items-center gap-2">
                                 <Droplets size={14} className="text-red-500" />
-                                {hemoType} ({records.length})
+                                {hemoType} ({typeRecords.length})
                               </h4>
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {records.map((record) => {
+                                {typeRecords.map((record) => {
                                   const isTransfused = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
                                                 dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
                                   
-                                  // Check if the unit is blocked by ANOTHER active (accepted but not returned) cross-match
+                                  // Global check: Is this unit reserved by ANY other active cross-match?
                                   const isReserved = records.some(r => 
                                     r.id !== record.id && 
-                                    (r.unitId === record.unitId || (record.unitId && r.qualitySeal === record.unitId) || (record.qualitySeal && r.unitId === record.qualitySeal) || (record.qualitySeal && r.qualitySeal === record.qualitySeal)) && 
+                                    (
+                                      (r.unitId && (r.unitId === record.unitId || r.unitId === record.qualitySeal)) ||
+                                      (r.qualitySeal && (r.qualitySeal === record.unitId || r.qualitySeal === record.qualitySeal))
+                                    ) && 
                                     r.acceptedBy && 
                                     !r.returned &&
                                     !isTransfused
@@ -945,6 +999,81 @@ export const PreTransfusionalApp: React.FC = () => {
                   className="flex-1 px-4 py-3 bg-red-600 text-white hover:bg-red-700 rounded-xl font-bold transition-colors"
                 >
                   Eliminar
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      {/* Patient Info Edit Modal */}
+      <AnimatePresence>
+        {patientToEdit && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[32px] p-8 max-w-md w-full shadow-2xl space-y-6"
+            >
+              <div className="flex items-center gap-3 text-blue-600">
+                <div className="bg-blue-50 p-3 rounded-2xl">
+                  <UserIcon size={24} />
+                </div>
+                <h3 className="text-xl font-bold">Editar Información del Paciente</h3>
+              </div>
+
+              <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 mb-4">
+                <p className="text-xs text-blue-700 font-medium">
+                  <strong>IMPORTANTE:</strong> Al modificar estos datos, se actualizarán <strong>todos los registros</strong> asociados a este paciente en el sistema.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-zinc-700 mb-1">Nombre Completo</label>
+                  <input
+                    type="text"
+                    value={newPatientName}
+                    onChange={(e) => setNewPatientName(e.target.value.toUpperCase())}
+                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all uppercase"
+                    placeholder="Escriba el nombre"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-zinc-700 mb-1">Cédula / Documento</label>
+                  <input
+                    type="text"
+                    value={newPatientId}
+                    onChange={(e) => setNewPatientId(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    placeholder="Numero de identificación"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => setPatientToEdit(null)}
+                  disabled={isSyncing}
+                  className="flex-1 px-4 py-3 text-zinc-600 bg-zinc-100 hover:bg-zinc-200 rounded-xl font-bold transition-all disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleUpdatePatient}
+                  disabled={isSyncing || !newPatientName || !newPatientId}
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white hover:bg-blue-700 rounded-xl font-bold shadow-lg shadow-blue-100 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSyncing ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : <CheckCircle size={18} />}
+                  Guardar Cambios
                 </button>
               </div>
             </motion.div>
