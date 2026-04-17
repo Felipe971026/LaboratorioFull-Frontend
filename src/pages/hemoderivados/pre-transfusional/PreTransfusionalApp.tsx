@@ -535,8 +535,18 @@ export const PreTransfusionalApp: React.FC = () => {
                               </h4>
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 {records.map((record) => {
-                                  const isUsed = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
+                                  const isTransfused = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
                                                 dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
+                                  
+                                  // Check if the unit is blocked by ANOTHER active (accepted but not returned) cross-match
+                                  const isBlockedByOther = records.some(r => 
+                                    r.id !== record.id && 
+                                    (r.unitId === record.unitId || (record.unitId && r.qualitySeal === record.unitId) || (record.qualitySeal && r.unitId === record.qualitySeal) || (record.qualitySeal && r.qualitySeal === record.qualitySeal)) && 
+                                    r.acceptedBy && 
+                                    !r.returned
+                                  );
+
+                                  const isUsed = isTransfused || isBlockedByOther;
                                   return (
                                     <RecordCard 
                                       key={record.id || record.createdAt} 
