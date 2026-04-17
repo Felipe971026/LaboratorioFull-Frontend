@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Inbox, Plus, History, LogIn, LogOut, ShieldCheck, ClipboardCheck, X, AlertTriangle, Info, Layers } from 'lucide-react';
+import { ArrowLeft, Inbox, Plus, History, LogIn, LogOut, ShieldCheck, ClipboardCheck, X, AlertTriangle, Info, Layers, Droplets, LayoutGrid } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { RecepcionForm } from '../components/RecepcionForm';
 import { RecepcionRecordCard } from '../components/RecepcionRecordCard';
@@ -10,6 +11,15 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
 import { DeleteConfirmationModal } from '../../laboratorio/components/DeleteConfirmationModal';
 import { saveRecord, deleteRecord as apiDeleteRecord } from '../../../lib/api';
+import { getNowISO } from '../../../utils/dateUtils';
+
+const HEMODERIVATIVE_TYPES = [
+  'Globulos Rojos',
+  'Plasma Fresco Congelado',
+  'Crioprecipitado',
+  'Plaquetas (Estándar)',
+  'Plaquetas AFERESIS'
+];
 
 export const RecepcionApp: React.FC = () => {
   const navigate = useNavigate();
@@ -20,6 +30,7 @@ export const RecepcionApp: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState<ReceivedUnitRecord | null>(null);
   const [filter, setFilter] = useState<'all' | 'available' | 'used'>('all');
+  const [selectedType, setSelectedType] = useState<string>('all');
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   
@@ -200,7 +211,7 @@ export const RecepcionApp: React.FC = () => {
         const updateData = {
           ...editingRecord,
           ...newRecords[0],
-          updatedAt: new Date().toISOString(),
+          updatedAt: getNowISO(),
           updatedBy: user.email || 'Desconocido'
         };
         console.log('Updating record:', updateData);
@@ -213,7 +224,7 @@ export const RecepcionApp: React.FC = () => {
           const fullRecord = {
             ...record,
             status: record.accepted === 'Sí' ? 'Disponible' : 'Rechazado',
-            createdAt: new Date().toISOString(),
+            createdAt: getNowISO(),
             uid: user.uid,
             userEmail: user.email || 'Desconocido'
           };
@@ -277,7 +288,7 @@ export const RecepcionApp: React.FC = () => {
       const updateData: ReceivedUnitRecord = {
         ...recordToReclassify,
         reclassified: reclassifyOption,
-        updatedAt: new Date().toISOString(),
+        updatedAt: getNowISO(),
         updatedBy: user.email || 'Desconocido'
       };
 
@@ -295,7 +306,39 @@ export const RecepcionApp: React.FC = () => {
     }
   };
 
+  const getCounts = (type: string) => {
+    const typeRecords = type === 'all' 
+      ? records 
+      : records.filter(r => r.hemoderivativeType === type);
+    
+    let available = 0;
+    let reserved = 0;
+    let used = 0;
+
+    typeRecords.forEach(record => {
+      const isTransfused = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
+                          dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
+      
+      const isReserved = bloodTestRecords.some(r => 
+        (r.unitId === record.unitId || r.qualitySeal === record.qualitySeal) && 
+        r.acceptedBy && 
+        !r.returned &&
+        !isTransfused
+      );
+
+      if (isTransfused) used++;
+      else if (isReserved) reserved++;
+      else available++;
+    });
+
+    return { available, reserved, used };
+  };
+
   const filteredRecords = records.filter(record => {
+    // Type filter
+    if (selectedType !== 'all' && record.hemoderivativeType !== selectedType) return false;
+
+    // Status filter
     const isTransfused = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
                         dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
     
@@ -478,83 +521,183 @@ export const RecepcionApp: React.FC = () => {
                 />
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <h2 className="text-2xl font-bold text-zinc-900">Historial de Recepción</h2>
-                  
-                  <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-zinc-200 shadow-sm">
-                    <button
-                      onClick={() => setFilter('all')}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                        filter === 'all' ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-500 hover:bg-zinc-50'
-                      }`}
-                    >
-                      Todos
-                    </button>
-                    <button
-                      onClick={() => setFilter('available')}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                        filter === 'available' ? 'bg-green-600 text-white shadow-md' : 'text-zinc-500 hover:bg-zinc-50'
-                      }`}
-                    >
-                      Disponibles
-                    </button>
-                    <button
-                      onClick={() => setFilter('used')}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                        filter === 'used' ? 'bg-blue-600 text-white shadow-md' : 'text-zinc-500 hover:bg-zinc-50'
-                      }`}
-                    >
-                      Utilizados
-                    </button>
-                  </div>
-
-                  <div className="text-sm text-zinc-500">
-                    Mostrando: <span className="font-bold text-zinc-900">{filteredRecords.length}</span> de <span className="font-bold text-zinc-900">{records.length}</span>
-                  </div>
-                </div>
-
-                {filteredRecords.length === 0 ? (
-                  <div className="text-center py-20 bg-white rounded-3xl border border-zinc-100 border-dashed">
-                    <Inbox className="mx-auto h-12 w-12 text-zinc-300 mb-4" />
-                    <h3 className="text-lg font-medium text-zinc-900">No hay registros</h3>
-                    <p className="text-zinc-500 mt-1">
-                      {filter === 'all' 
-                        ? 'Comienza agregando una nueva recepción de hemoderivados.' 
-                        : filter === 'available' 
-                        ? 'No hay componentes disponibles en este momento.' 
-                        : 'No hay componentes marcados como utilizados.'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredRecords.map((record) => {
-                      const isTransfused = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
-                                          dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
+              <div className="flex flex-col lg:flex-row gap-8">
+                {/* Sidebar Column */}
+                <aside className="w-full lg:w-72 shrink-0 space-y-6">
+                  <div className="bg-white rounded-[32px] p-6 border border-zinc-100 shadow-sm sticky top-32">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-zinc-400 mb-6 flex items-center gap-2">
+                      <LayoutGrid size={16} className="text-blue-600" />
+                      Categorías
+                    </h3>
+                    
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => setSelectedType('all')}
+                        className={`w-full flex items-center justify-between p-3 rounded-2xl transition-all ${
+                          selectedType === 'all' 
+                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' 
+                          : 'text-zinc-600 hover:bg-zinc-50'
+                        }`}
+                      >
+                        <span className="font-bold text-sm">Todos</span>
+                        {selectedType === 'all' && <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
+                      </button>
                       
-                      const isReserved = bloodTestRecords.some(r => 
-                        (r.unitId === record.unitId || r.qualitySeal === record.qualitySeal) && 
-                        r.acceptedBy && 
-                        !r.returned &&
-                        !isTransfused
-                      );
-
-                      return (
-                        <RecepcionRecordCard
-                          key={record.id}
-                          record={record}
-                          isUsed={isTransfused}
-                          isReserved={isReserved}
-                          onDelete={handleDeleteClick}
-                          onEdit={handleEdit}
-                          onReclassify={handleReclassifyClick}
-                          currentUserUid={user?.uid}
-                          isAdmin={isAdmin}
-                        />
-                      );
-                    })}
+                      {HEMODERIVATIVE_TYPES.map(type => {
+                        const counts = getCounts(type);
+                        return (
+                          <button
+                            key={type}
+                            onClick={() => setSelectedType(type)}
+                            className={`w-full flex flex-col p-4 rounded-2xl border transition-all text-left ${
+                              selectedType === type 
+                              ? 'bg-blue-50 border-blue-200 shadow-sm ring-1 ring-blue-200' 
+                              : 'bg-white border-zinc-100 hover:border-zinc-200 hover:bg-zinc-50'
+                            }`}
+                          >
+                            <span className={`font-bold text-sm mb-3 ${selectedType === type ? 'text-blue-700' : 'text-zinc-800'}`}>
+                              {type}
+                            </span>
+                            
+                            <div className="flex items-center gap-2">
+                              {counts.available > 0 && (
+                                <div className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-0.5 rounded-lg text-[10px] font-black">
+                                  {counts.available}
+                                </div>
+                              )}
+                              {counts.reserved > 0 && (
+                                <div className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-lg text-[10px] font-black">
+                                  {counts.reserved}
+                                </div>
+                              )}
+                              {counts.used > 0 && (
+                                <div className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded-lg text-[10px] font-black">
+                                  {counts.used}
+                                </div>
+                              )}
+                              {counts.available === 0 && counts.reserved === 0 && counts.used === 0 && (
+                                <span className="text-[10px] text-zinc-400 font-medium">Vacío</span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                )}
+                </aside>
+
+                {/* Main Content Column */}
+                <div className="flex-1 space-y-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <h2 className="text-2xl font-bold text-zinc-900">
+                        {selectedType === 'all' ? 'Historial de Recepción' : selectedType}
+                      </h2>
+                      {selectedType !== 'all' && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setFilter('available')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                              filter === 'available' 
+                              ? 'bg-green-600 text-white border-green-600 shadow-md' 
+                              : 'bg-white text-green-600 border-green-100 hover:bg-green-50'
+                            }`}
+                          >
+                            {getCounts(selectedType).available} Disponibles
+                          </button>
+                          <button
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-amber-600 border border-amber-100"
+                          >
+                            {getCounts(selectedType).reserved} Reservados
+                          </button>
+                          <button
+                            onClick={() => setFilter('used')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                              filter === 'used' 
+                              ? 'bg-red-600 text-white border-red-600 shadow-md' 
+                              : 'bg-white text-red-600 border-red-100 hover:bg-red-50'
+                            }`}
+                          >
+                            {getCounts(selectedType).used} Usados
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-zinc-200 shadow-sm">
+                      <button
+                        onClick={() => setFilter('all')}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          filter === 'all' ? 'bg-zinc-900 text-white shadow-md' : 'text-zinc-500 hover:bg-zinc-50'
+                        }`}
+                      >
+                        Todos
+                      </button>
+                      <button
+                        onClick={() => setFilter('available')}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          filter === 'available' ? 'bg-green-600 text-white shadow-md' : 'text-zinc-500 hover:bg-zinc-50'
+                        }`}
+                      >
+                        Disponibles
+                      </button>
+                      <button
+                        onClick={() => setFilter('used')}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          filter === 'used' ? 'bg-blue-600 text-white shadow-md' : 'text-zinc-500 hover:bg-zinc-50'
+                        }`}
+                      >
+                        Utilizados
+                      </button>
+                    </div>
+
+                    <div className="text-sm text-zinc-500">
+                      Mostrando: <span className="font-bold text-zinc-900">{filteredRecords.length}</span> de <span className="font-bold text-zinc-900">{records.length}</span>
+                    </div>
+                  </div>
+
+                  {filteredRecords.length === 0 ? (
+                    <div className="text-center py-20 bg-white rounded-3xl border border-zinc-100 border-dashed">
+                      <Inbox className="mx-auto h-12 w-12 text-zinc-300 mb-4" />
+                      <h3 className="text-lg font-medium text-zinc-900">No hay registros</h3>
+                      <p className="text-zinc-500 mt-1">
+                        {filter === 'all' 
+                          ? 'Comienza agregando una nueva recepción de hemoderivados.' 
+                          : filter === 'available' 
+                          ? 'No hay componentes disponibles en este momento.' 
+                          : 'No hay componentes marcados como utilizados.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {filteredRecords.map((record) => {
+                        const isTransfused = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
+                                            dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
+                        
+                        const isReserved = bloodTestRecords.some(r => 
+                          (r.unitId === record.unitId || r.qualitySeal === record.qualitySeal) && 
+                          r.acceptedBy && 
+                          !r.returned &&
+                          !isTransfused
+                        );
+
+                        return (
+                          <RecepcionRecordCard
+                            key={record.id}
+                            record={record}
+                            isUsed={isTransfused}
+                            isReserved={isReserved}
+                            onDelete={handleDeleteClick}
+                            onEdit={handleEdit}
+                            onReclassify={handleReclassifyClick}
+                            currentUserUid={user?.uid}
+                            isAdmin={isAdmin}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </>
