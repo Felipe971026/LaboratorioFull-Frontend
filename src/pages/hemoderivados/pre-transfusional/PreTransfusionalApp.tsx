@@ -539,14 +539,14 @@ export const PreTransfusionalApp: React.FC = () => {
                                                 dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
                                   
                                   // Check if the unit is blocked by ANOTHER active (accepted but not returned) cross-match
-                                  const isBlockedByOther = records.some(r => 
+                                  const isReserved = records.some(r => 
                                     r.id !== record.id && 
                                     (r.unitId === record.unitId || (record.unitId && r.qualitySeal === record.unitId) || (record.qualitySeal && r.unitId === record.qualitySeal) || (record.qualitySeal && r.qualitySeal === record.qualitySeal)) && 
                                     r.acceptedBy && 
-                                    !r.returned
+                                    !r.returned &&
+                                    !isTransfused
                                   );
 
-                                  const isUsed = isTransfused || isBlockedByOther;
                                   return (
                                     <RecordCard 
                                       key={record.id || record.createdAt} 
@@ -558,7 +558,8 @@ export const PreTransfusionalApp: React.FC = () => {
                                       onReturn={setRecordToReturn}
                                       currentUserUid={user?.uid}
                                       isAdmin={isAdmin}
-                                      isUsed={isUsed}
+                                      isUsed={isTransfused}
+                                      isReserved={isReserved}
                                     />
                                   );
                                 })}
