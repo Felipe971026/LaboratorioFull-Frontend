@@ -1,7 +1,6 @@
-
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { LabResultData } from '../types';
+import { LabResultData, getCategory } from '../types';
 import { PROFESSIONALS } from '../../../constants';
 import { formatColombia } from '../../../utils/dateUtils';
 
@@ -85,58 +84,90 @@ export const generatePdf = async (result: LabResultData) => {
   
   currentY += 8;
 
-  // 3. Results Table
-  const tableData = result.parameters.map(p => {
-    const isOutOfRange = p.status === 'Alto' || p.status === 'Bajo';
-    const displayValue = isOutOfRange ? `${p.value} *` : p.value;
-    return [
-      p.name.toUpperCase(),
-      `${displayValue} ${p.unit}`,
-      p.referenceRange,
-      p.status === 'Normal' ? '' : p.status.toUpperCase()
-    ];
+  // 3. Results Tables grouped by category
+  const groupedParameters = result.parameters.reduce((acc, p) => {
+    const category = p.category || getCategory(p.name);
+    if (!acc[category]) acc[category] = [];
+    acc[category].push(p);
+    return acc;
+  }, {} as Record<string, typeof result.parameters>);
+
+  // Define categories to show (keeping order if possible)
+  const categoryOrder = ['Hematología', 'Química sanguínea', 'Otros'];
+  const categoriesPresent = Object.keys(groupedParameters).sort((a, b) => {
+    const ia = categoryOrder.indexOf(a);
+    const ib = categoryOrder.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
   });
 
-  autoTable(doc, {
-    startY: currentY,
-    head: [['ANALISIS', 'RESULTADO', 'REFERENCIA O RANGO', 'ESTADO']],
-    body: tableData,
-    theme: 'plain',
-    headStyles: { 
-      fillColor: [255, 255, 255], 
-      textColor: [0, 0, 0], 
-      fontStyle: 'bold',
-      lineWidth: { bottom: 0.2 },
-      lineColor: [0, 0, 0],
-      fontSize: 8
-    },
-    styles: { 
-      fontSize: 7,
-      cellPadding: 1.5,
-      textColor: [0, 0, 0]
-    },
-    columnStyles: {
-      0: { cellWidth: 70 },
-      1: { cellWidth: 35 },
-      2: { cellWidth: 55 },
-      3: { cellWidth: 30, fontStyle: 'bold' }
-    },
-    didParseCell: function(data) {
-      if (data.section === 'body' && data.column.index === 1) {
-        const value = data.cell.raw as string;
-        if (value.includes('*')) {
-          data.cell.styles.fontStyle = 'bold';
+  for (const category of categoriesPresent) {
+    const params = groupedParameters[category];
+    if (params.length === 0) continue;
+
+    // Check for page break before category title
+    if (currentY > 260) {
+      doc.addPage();
+      currentY = 20;
+    }
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text(category.toUpperCase(), 14, currentY);
+    currentY += 2;
+
+    const tableData = params.map(p => {
+      const isOutOfRange = p.status === 'Alto' || p.status === 'Bajo';
+      const displayValue = isOutOfRange ? `${p.value} *` : p.value;
+      return [
+        p.name.toUpperCase(),
+        `${displayValue} ${p.unit}`,
+        p.referenceRange,
+        p.status === 'Normal' ? '' : p.status.toUpperCase()
+      ];
+    });
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [['ANALISIS', 'RESULTADO', 'REFERENCIA O RANGO', 'ESTADO']],
+      body: tableData,
+      theme: 'plain',
+      headStyles: { 
+        fillColor: [255, 255, 255], 
+        textColor: [0, 0, 0], 
+        fontStyle: 'bold',
+        lineWidth: { bottom: 0.1 },
+        lineColor: [100, 100, 100],
+        fontSize: 8
+      },
+      styles: { 
+        fontSize: 7,
+        cellPadding: 1.5,
+        textColor: [0, 0, 0]
+      },
+      columnStyles: {
+        0: { cellWidth: 70 },
+        1: { cellWidth: 35 },
+        2: { cellWidth: 55 },
+        3: { cellWidth: 30, fontStyle: 'bold' }
+      },
+      didParseCell: function(data) {
+        if (data.section === 'body' && data.column.index === 1) {
+          const value = data.cell.raw as string;
+          if (value.includes('*')) {
+            data.cell.styles.fontStyle = 'bold';
+          }
+        }
+        if (data.section === 'body' && data.column.index === 3) {
+          const status = data.cell.raw as string;
+          if (status === 'ALTO') data.cell.styles.textColor = [220, 38, 38];
+          if (status === 'BAJO') data.cell.styles.textColor = [217, 119, 6];
         }
       }
-      if (data.section === 'body' && data.column.index === 3) {
-        const status = data.cell.raw as string;
-        if (status === 'ALTO') data.cell.styles.textColor = [220, 38, 38];
-        if (status === 'BAJO') data.cell.styles.textColor = [217, 119, 6];
-      }
-    }
-  });
+    });
 
-  currentY = (doc as any).lastAutoTable.finalY + 12; // Increased space between table and validation
+    currentY = (doc as any).lastAutoTable.finalY + 10;
+  }
 
   // 4. Validation and Signature
   doc.setFontSize(8);
