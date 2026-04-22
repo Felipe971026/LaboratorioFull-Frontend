@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { UploadCloud, X, Activity, FileText, Download, Plus, Trash2, Save, Info, RefreshCw, FileSearch, Sparkles } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -6,15 +5,9 @@ import { saveResult } from './services/storageService';
 import { generatePdf, generateJson } from './services/pdfService';
 import { convertPdfToImage } from './services/pdfConverter';
 import { compressImage } from './services/imageUtils';
-import { LabResultData, LabParameter } from './types';
+import { LabResultData, LabParameter, PARAMETER_ORDER, LAB_CATEGORIES, getCategory } from './types';
 import { PROFESSIONALS } from '../../constants';
 import { getNowISO } from '../../utils/dateUtils';
-
-const PARAMETER_ORDER = [
-  'WBC', 'Lymph#', 'Mid#', 'Gran#', 'Lymph%', 'Mid%', 'Gran%', 
-  'HGB', 'RBC', 'HCT', 'MCV', 'MCH', 'MCHC', 'RDW-CV', 'RDW-SD', 
-  'PLT', 'MPV', 'PDW', 'PCT', 'UREA', 'CREAT', 'BUN'
-];
 
 export const LaboratorioAnalysis: React.FC = () => {
   const [id, setId] = useState<string | null>(null);
@@ -33,7 +26,8 @@ export const LaboratorioAnalysis: React.FC = () => {
     unit: '',
     referenceRange: '',
     status: 'Normal',
-    analysis: ''
+    analysis: '',
+    category: getCategory(name)
   })));
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -53,26 +47,42 @@ export const LaboratorioAnalysis: React.FC = () => {
   };
 
   const sortParameters = (params: LabParameter[]) => {
-    // Create a map of extracted parameters for quick lookup
+    // Create a map of parameters for quick lookup
     const extractedMap = new Map(params.map(p => [p.name.toUpperCase(), p]));
     
     // Always return all standard parameters in order
     const sorted = PARAMETER_ORDER.map(name => {
       const extracted = extractedMap.get(name.toUpperCase());
-      if (extracted) return extracted;
+      if (extracted) {
+        return {
+          ...extracted,
+          category: extracted.category || getCategory(name)
+        };
+      }
       
-      // Default values for missing parameters
       return {
         name,
         value: '',
         unit: '',
         referenceRange: '',
         status: 'Normal' as const,
-        analysis: ''
+        analysis: '',
+        category: getCategory(name)
       };
     });
 
-    // Auto-calculate BUN if UREA is present but BUN is not
+    // Add extra parameters not in standard list
+    params.forEach(p => {
+      const nameUpper = p.name.toUpperCase();
+      if (!PARAMETER_ORDER.some(std => std.toUpperCase() === nameUpper)) {
+        sorted.push({
+          ...p,
+          category: p.category || getCategory(p.name)
+        });
+      }
+    });
+
+    // Auto-calculate BUN if UREA is present
     const urea = sorted.find(p => p.name.toUpperCase() === 'UREA');
     const bun = sorted.find(p => p.name.toUpperCase() === 'BUN');
     
@@ -193,6 +203,7 @@ export const LaboratorioAnalysis: React.FC = () => {
                         type: Type.OBJECT,
                         properties: {
                           name: { type: Type.STRING, description: "Nombre corto del parámetro (ej. WBC)" },
+                          category: { type: Type.STRING, description: "Categoría (Hematología, Química sanguínea o Otros)" },
                           value: { type: Type.STRING, description: "Valor numérico" },
                           unit: { type: Type.STRING },
                           referenceRange: { type: Type.STRING },
@@ -326,7 +337,7 @@ export const LaboratorioAnalysis: React.FC = () => {
   };
 
   const addParameter = () => {
-    setParameters([...parameters, { name: '', value: '', unit: '', referenceRange: '', status: 'Normal', analysis: '' }]);
+    setParameters([...parameters, { name: '', value: '', unit: '', referenceRange: '', status: 'Normal', analysis: '', category: 'Otros' }]);
   };
 
   const removeParameter = (index: number) => {
@@ -339,7 +350,10 @@ export const LaboratorioAnalysis: React.FC = () => {
     const newParams = [...parameters];
     newParams[index] = { ...newParams[index], [field]: value };
     
-    // Auto-calculate BUN if UREA is updated
+    // Auto-assignment of category if name changes
+    if (field === 'name') {
+      newParams[index].category = getCategory(value);
+    }
     if (newParams[index].name.toUpperCase() === 'UREA' && field === 'value') {
       const ureaValue = parseFloat(value);
       if (!isNaN(ureaValue)) {
@@ -429,7 +443,8 @@ export const LaboratorioAnalysis: React.FC = () => {
       unit: '',
       referenceRange: '',
       status: 'Normal' as const,
-      analysis: ''
+      analysis: '',
+      category: getCategory(name)
     })));
     setPreviewUrl(null);
     setBase64Image(null);
@@ -758,8 +773,8 @@ export const LaboratorioAnalysis: React.FC = () => {
               </div>
               <div className="space-y-4">
                 {parameters.map((param, index) => (
-                  <div key={index} className="grid grid-cols-1 md:grid-cols-6 gap-3 p-4 bg-slate-50 rounded-xl relative group border border-slate-100">
-                    <div className="md:col-span-2">
+                  <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-3 p-4 bg-slate-50 rounded-xl relative group border border-slate-100">
+                    <div className="md:col-span-3">
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Parámetro</label>
                       <input 
                         placeholder="Ej. Hemoglobina"
@@ -768,7 +783,17 @@ export const LaboratorioAnalysis: React.FC = () => {
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
                       />
                     </div>
-                    <div>
+                    <div className="md:col-span-2">
+                      <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Categoría</label>
+                      <select 
+                        value={param.category || 'Otros'}
+                        onChange={(e) => updateParameter(index, 'category', e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                      >
+                        {LAB_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div className="md:col-span-1">
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Valor</label>
                       <input 
                         placeholder="Resultado"
@@ -777,7 +802,7 @@ export const LaboratorioAnalysis: React.FC = () => {
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white font-bold"
                       />
                     </div>
-                    <div>
+                    <div className="md:col-span-1">
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Unidad</label>
                       <input 
                         placeholder="Unidad"
@@ -786,7 +811,7 @@ export const LaboratorioAnalysis: React.FC = () => {
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
                       />
                     </div>
-                    <div>
+                    <div className="md:col-span-2">
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Rango Ref.</label>
                       <input 
                         placeholder="Rango"
@@ -795,7 +820,7 @@ export const LaboratorioAnalysis: React.FC = () => {
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
                       />
                     </div>
-                    <div className="flex gap-2">
+                    <div className="md:col-span-2 flex gap-2">
                       <div className="flex-1">
                         <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Estado</label>
                         <select 
@@ -822,7 +847,7 @@ export const LaboratorioAnalysis: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    <div className="md:col-span-6">
+                    <div className="md:col-span-12">
                       <input 
                         placeholder="Análisis específico para este parámetro (opcional)"
                         value={param.analysis}
