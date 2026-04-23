@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { UploadCloud, X, Activity, FileText, Download, Plus, Trash2, Save, Info, RefreshCw, FileSearch, Sparkles } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -6,15 +5,9 @@ import { saveResult } from './services/storageService';
 import { generatePdf, generateJson } from './services/pdfService';
 import { convertPdfToImage } from './services/pdfConverter';
 import { compressImage } from './services/imageUtils';
-import { LabResultData, LabParameter } from './types';
+import { LabResultData, LabParameter, PARAMETER_ORDER, LAB_CATEGORIES, getCategory } from './types';
 import { PROFESSIONALS } from '../../constants';
-import { getNowISO } from '../../utils/dateUtils';
-
-const PARAMETER_ORDER = [
-  'WBC', 'Lymph#', 'Mid#', 'Gran#', 'Lymph%', 'Mid%', 'Gran%', 
-  'HGB', 'RBC', 'HCT', 'MCV', 'MCH', 'MCHC', 'RDW-CV', 'RDW-SD', 
-  'PLT', 'MPV', 'PDW', 'PCT', 'UREA', 'CREAT', 'BUN'
-];
+import { getNowISO, getColombiaDateString } from '../../utils/dateUtils';
 
 export const LaboratorioAnalysis: React.FC = () => {
   const [id, setId] = useState<string | null>(null);
@@ -24,6 +17,8 @@ export const LaboratorioAnalysis: React.FC = () => {
   const [age, setAge] = useState('');
   const [eps, setEps] = useState('');
   const [studyType, setStudyType] = useState('');
+  const [receptionDate, setReceptionDate] = useState(getColombiaDateString());
+  const [sampleDate, setSampleDate] = useState(getColombiaDateString());
   const [bacteriologist, setBacteriologist] = useState(PROFESSIONALS[0].name);
   const [generalAnalysis, setGeneralAnalysis] = useState('');
   
@@ -33,7 +28,8 @@ export const LaboratorioAnalysis: React.FC = () => {
     unit: '',
     referenceRange: '',
     status: 'Normal',
-    analysis: ''
+    analysis: '',
+    category: getCategory(name)
   })));
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -53,26 +49,42 @@ export const LaboratorioAnalysis: React.FC = () => {
   };
 
   const sortParameters = (params: LabParameter[]) => {
-    // Create a map of extracted parameters for quick lookup
+    // Create a map of parameters for quick lookup
     const extractedMap = new Map(params.map(p => [p.name.toUpperCase(), p]));
     
     // Always return all standard parameters in order
     const sorted = PARAMETER_ORDER.map(name => {
       const extracted = extractedMap.get(name.toUpperCase());
-      if (extracted) return extracted;
+      if (extracted) {
+        return {
+          ...extracted,
+          category: extracted.category || getCategory(name)
+        };
+      }
       
-      // Default values for missing parameters
       return {
         name,
         value: '',
         unit: '',
         referenceRange: '',
         status: 'Normal' as const,
-        analysis: ''
+        analysis: '',
+        category: getCategory(name)
       };
     });
 
-    // Auto-calculate BUN if UREA is present but BUN is not
+    // Add extra parameters not in standard list
+    params.forEach(p => {
+      const nameUpper = p.name.toUpperCase();
+      if (!PARAMETER_ORDER.some(std => std.toUpperCase() === nameUpper)) {
+        sorted.push({
+          ...p,
+          category: p.category || getCategory(p.name)
+        });
+      }
+    });
+
+    // Auto-calculate BUN if UREA is present
     const urea = sorted.find(p => p.name.toUpperCase() === 'UREA');
     const bun = sorted.find(p => p.name.toUpperCase() === 'BUN');
     
@@ -162,6 +174,10 @@ export const LaboratorioAnalysis: React.FC = () => {
                 - El nombre del paciente suele estar en una sección de "Datos del Paciente" o "Información General".
                 - Si no estás 100% seguro, deja el campo vacío en lugar de inventar o usar el nombre de un médico.
                 
+                REGLAS PARA FECHAS:
+                - Extrae la "Fecha de Recepción" y "Fecha de Toma" si están presentes.
+                - Formato: DD/MM/AAAA o AAAA-MM-DD.
+                
                 EXTRAE ESTOS 22 PARÁMETROS ESPECÍFICOS (si están presentes):
                 WBC, Lymph#, Mid#, Gran#, Lymph%, Mid%, Gran%, HGB, RBC, HCT, MCV, MCH, MCHC, RDW-CV, RDW-SD, PLT, MPV, PDW, PCT, UREA, CREAT, BUN.
                 
@@ -184,6 +200,8 @@ export const LaboratorioAnalysis: React.FC = () => {
                     patientName: { type: Type.STRING, description: "Nombre completo en MAYÚSCULAS" },
                     solicitudNumber: { type: Type.STRING, description: "Número de solicitud o pedido" },
                     clinicalHistoryNumber: { type: Type.STRING, description: "ID, Cédula o Historia Clínica" },
+                    receptionDate: { type: Type.STRING, description: "Fecha de recepción del laboratorio" },
+                    sampleDate: { type: Type.STRING, description: "Fecha de toma de la muestra" },
                     age: { type: Type.STRING, description: "Edad formateada como 'X años'" },
                     eps: { type: Type.STRING },
                     studyType: { type: Type.STRING, description: "Nombre del estudio (ej. Hemograma)" },
@@ -193,6 +211,7 @@ export const LaboratorioAnalysis: React.FC = () => {
                         type: Type.OBJECT,
                         properties: {
                           name: { type: Type.STRING, description: "Nombre corto del parámetro (ej. WBC)" },
+                          category: { type: Type.STRING, description: "Categoría (Hematología, Química sanguínea o Otros)" },
                           value: { type: Type.STRING, description: "Valor numérico" },
                           unit: { type: Type.STRING },
                           referenceRange: { type: Type.STRING },
@@ -221,6 +240,47 @@ export const LaboratorioAnalysis: React.FC = () => {
             if (result.patientName && !patientName) setPatientName(result.patientName);
             if (result.solicitudNumber && !solicitudNumber) setSolicitudNumber(result.solicitudNumber);
             if (result.clinicalHistoryNumber && !clinicalHistoryNumber) setClinicalHistoryNumber(result.clinicalHistoryNumber);
+            const normalizeDate = (dateStr: string) => {
+              if (!dateStr) return undefined;
+              
+              // Clean up the string (remove non-alphanumeric/slash/dash characters)
+              const clean = dateStr.trim().replace(/[^\d\/\-]/g, '');
+              
+              // If it's already YYYY-MM-DD
+              if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+              
+              // If it's DD/MM/YYYY or D/M/YYYY
+              const parts = clean.split(/[\/\-]/);
+              if (parts.length === 3) {
+                // Determine which part is the year
+                let year = '', month = '', day = '';
+                
+                if (parts[2].length === 4) {
+                  year = parts[2];
+                  month = parts[1].padStart(2, '0');
+                  day = parts[0].padStart(2, '0');
+                } else if (parts[0].length === 4) {
+                  year = parts[0];
+                  month = parts[1].padStart(2, '0');
+                  day = parts[2].padStart(2, '0');
+                }
+                
+                if (year && month && day) {
+                  return `${year}-${month}-${day}`;
+                }
+              }
+              
+              return undefined; // If we can't normalize, return undefined to not overwrite defaults
+            };
+
+            if (result.receptionDate) {
+              const normalized = normalizeDate(result.receptionDate);
+              if (normalized) setReceptionDate(normalized);
+            }
+            if (result.sampleDate) {
+              const normalized = normalizeDate(result.sampleDate);
+              if (normalized) setSampleDate(normalized);
+            }
             
             if (result.age && !age) {
               let formattedAge = result.age;
@@ -326,7 +386,7 @@ export const LaboratorioAnalysis: React.FC = () => {
   };
 
   const addParameter = () => {
-    setParameters([...parameters, { name: '', value: '', unit: '', referenceRange: '', status: 'Normal', analysis: '' }]);
+    setParameters([...parameters, { name: '', value: '', unit: '', referenceRange: '', status: 'Normal', analysis: '', category: 'Otros' }]);
   };
 
   const removeParameter = (index: number) => {
@@ -339,7 +399,10 @@ export const LaboratorioAnalysis: React.FC = () => {
     const newParams = [...parameters];
     newParams[index] = { ...newParams[index], [field]: value };
     
-    // Auto-calculate BUN if UREA is updated
+    // Auto-assignment of category if name changes
+    if (field === 'name') {
+      newParams[index].category = getCategory(value);
+    }
     if (newParams[index].name.toUpperCase() === 'UREA' && field === 'value') {
       const ureaValue = parseFloat(value);
       if (!isNaN(ureaValue)) {
@@ -378,6 +441,8 @@ export const LaboratorioAnalysis: React.FC = () => {
       const resultData: LabResultData = {
         id: currentId,
         date: getNowISO(),
+        receptionDate,
+        sampleDate,
         patientName,
         solicitudNumber,
         clinicalHistoryNumber,
@@ -422,6 +487,8 @@ export const LaboratorioAnalysis: React.FC = () => {
     setAge('');
     setEps('');
     setStudyType('');
+    setReceptionDate(getColombiaDateString());
+    setSampleDate(getColombiaDateString());
     setGeneralAnalysis('');
     setParameters(PARAMETER_ORDER.map(name => ({
       name,
@@ -429,7 +496,8 @@ export const LaboratorioAnalysis: React.FC = () => {
       unit: '',
       referenceRange: '',
       status: 'Normal' as const,
-      analysis: ''
+      analysis: '',
+      category: getCategory(name)
     })));
     setPreviewUrl(null);
     setBase64Image(null);
@@ -439,11 +507,42 @@ export const LaboratorioAnalysis: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleOpenPreview = () => {
+    if (!previewUrl) return;
+    
+    try {
+      // For data URLs, opening directly can be blocked. Using a new tab with an img tag is more reliable
+      const win = window.open('', '_blank');
+      if (win) {
+        win.document.write(`
+          <html>
+            <head>
+              <title>Documento Original</title>
+              <style>
+                body { margin: 0; background: #333; display: flex; justify-center: center; align-items: start; height: 100vh; overflow: auto; }
+                img { max-width: 100%; display: block; margin: 20px auto; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+              </style>
+            </head>
+            <body>
+              <img src="${previewUrl}" />
+            </body>
+          </html>
+        `);
+        win.document.close();
+      }
+    } catch (e) {
+      console.error('Error opening preview:', e);
+      window.open(previewUrl, '_blank');
+    }
+  };
+
   const handleDownloadPreview = () => {
     const selectedProfessional = PROFESSIONALS.find(p => p.name === bacteriologist) || PROFESSIONALS[0];
     const previewData: LabResultData = {
       id: 'preview',
       date: getNowISO(),
+      receptionDate,
+      sampleDate,
       patientName,
       solicitudNumber,
       clinicalHistoryNumber,
@@ -562,7 +661,25 @@ export const LaboratorioAnalysis: React.FC = () => {
                   placeholder="Ej. 30 años"
                 />
               </div>
-              <div className="md:col-span-2 lg:col-span-3">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Fecha Recepción</label>
+                <input 
+                  type="date" 
+                  value={receptionDate}
+                  onChange={(e) => setReceptionDate(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Fecha Toma Muestra</label>
+                <input 
+                  type="date" 
+                  value={sampleDate}
+                  onChange={(e) => setSampleDate(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none bg-white"
+                />
+              </div>
+              <div className="md:col-span-2 lg:col-span-2">
                 <label className="block text-sm font-semibold text-slate-700 mb-2">Tipo de Estudio</label>
                 <input 
                   type="text" 
@@ -731,7 +848,25 @@ export const LaboratorioAnalysis: React.FC = () => {
                     placeholder="Ej. 30 años"
                   />
                 </div>
-                <div className="md:col-span-2 lg:col-span-3">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Fecha Recepción</label>
+                  <input 
+                    type="date" 
+                    value={receptionDate}
+                    onChange={(e) => setReceptionDate(e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Fecha Toma Muestra</label>
+                  <input 
+                    type="date" 
+                    value={sampleDate}
+                    onChange={(e) => setSampleDate(e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none bg-white"
+                  />
+                </div>
+                <div className="md:col-span-2 lg:col-span-2">
                   <label className="block text-sm font-semibold text-slate-700 mb-2">Tipo de Estudio</label>
                   <input 
                     type="text" 
@@ -758,8 +893,8 @@ export const LaboratorioAnalysis: React.FC = () => {
               </div>
               <div className="space-y-4">
                 {parameters.map((param, index) => (
-                  <div key={index} className="grid grid-cols-1 md:grid-cols-6 gap-3 p-4 bg-slate-50 rounded-xl relative group border border-slate-100">
-                    <div className="md:col-span-2">
+                  <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-3 p-4 bg-slate-50 rounded-xl relative group border border-slate-100">
+                    <div className="md:col-span-3">
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Parámetro</label>
                       <input 
                         placeholder="Ej. Hemoglobina"
@@ -768,7 +903,17 @@ export const LaboratorioAnalysis: React.FC = () => {
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
                       />
                     </div>
-                    <div>
+                    <div className="md:col-span-2">
+                      <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Categoría</label>
+                      <select 
+                        value={param.category || 'Otros'}
+                        onChange={(e) => updateParameter(index, 'category', e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                      >
+                        {LAB_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div className="md:col-span-1">
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Valor</label>
                       <input 
                         placeholder="Resultado"
@@ -777,7 +922,7 @@ export const LaboratorioAnalysis: React.FC = () => {
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white font-bold"
                       />
                     </div>
-                    <div>
+                    <div className="md:col-span-1">
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Unidad</label>
                       <input 
                         placeholder="Unidad"
@@ -786,7 +931,7 @@ export const LaboratorioAnalysis: React.FC = () => {
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
                       />
                     </div>
-                    <div>
+                    <div className="md:col-span-2">
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Rango Ref.</label>
                       <input 
                         placeholder="Rango"
@@ -795,7 +940,7 @@ export const LaboratorioAnalysis: React.FC = () => {
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
                       />
                     </div>
-                    <div className="flex gap-2">
+                    <div className="md:col-span-2 flex gap-2">
                       <div className="flex-1">
                         <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Estado</label>
                         <select 
@@ -822,7 +967,7 @@ export const LaboratorioAnalysis: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    <div className="md:col-span-6">
+                    <div className="md:col-span-12">
                       <input 
                         placeholder="Análisis específico para este parámetro (opcional)"
                         value={param.analysis}
@@ -858,20 +1003,14 @@ export const LaboratorioAnalysis: React.FC = () => {
                   {previewUrl ? (
                     <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
                       <img src={previewUrl} alt="Preview" className="w-full h-[164px] object-cover" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <button 
                           type="button"
-                          onClick={() => window.open(previewUrl, '_blank')}
-                          className="bg-white text-slate-900 p-2 rounded-full hover:bg-brand-50 transition-colors"
+                          onClick={handleOpenPreview}
+                          className="bg-white text-slate-900 p-3 rounded-full hover:bg-brand-50 transition-all hover:scale-110 shadow-lg"
+                          title="Ver documento original extendido"
                         >
-                          <FileSearch size={20} />
-                        </button>
-                        <button 
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="bg-white text-slate-900 p-2 rounded-full hover:bg-brand-50 transition-colors"
-                        >
-                          <RefreshCw size={20} />
+                          <FileSearch size={28} className="text-brand-600" />
                         </button>
                       </div>
                     </div>

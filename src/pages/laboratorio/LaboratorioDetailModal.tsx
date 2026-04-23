@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
 import { X, Download, FileText, Trash2, Edit2, Save } from 'lucide-react';
-import { LabResultData, LabParameter } from './types';
+import { LabResultData, LabParameter, getCategory, LAB_CATEGORIES } from './types';
 import { generatePdf, generateJson } from './services/pdfService';
 import { formatColombia } from '../../utils/dateUtils';
 import { PROFESSIONALS } from '../../constants';
@@ -30,6 +29,8 @@ export const LaboratorioDetailModal: React.FC<Props> = ({ result, onClose, onDel
     newParams[index] = { ...newParams[index], [field]: value };
     setEditedResult({ ...editedResult, parameters: newParams });
   };
+
+  const categories = LAB_CATEGORIES;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
@@ -151,6 +152,36 @@ export const LaboratorioDetailModal: React.FC<Props> = ({ result, onClose, onDel
                     <div className="text-sm font-medium text-slate-800">{result.eps || 'N/A'}</div>
                   )}
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Fecha Recepción</label>
+                  {isEditing ? (
+                    <input
+                      type="date"
+                      value={editedResult.receptionDate || ''}
+                      onChange={(e) => setEditedResult({ ...editedResult, receptionDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                    />
+                  ) : (
+                    <div className="text-sm font-medium text-slate-800">
+                      {result.receptionDate ? formatColombia(result.receptionDate).split(' ')[0] : 'N/A'}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Fecha Toma</label>
+                  {isEditing ? (
+                    <input
+                      type="date"
+                      value={editedResult.sampleDate || ''}
+                      onChange={(e) => setEditedResult({ ...editedResult, sampleDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                    />
+                  ) : (
+                    <div className="text-sm font-medium text-slate-800">
+                      {result.sampleDate ? formatColombia(result.sampleDate).split(' ')[0] : 'N/A'}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -209,106 +240,135 @@ export const LaboratorioDetailModal: React.FC<Props> = ({ result, onClose, onDel
 
           <div className="mb-8">
             <h3 className="text-lg font-semibold text-slate-800 border-b pb-2 mb-4">Parámetros</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                    <th className="p-3 font-medium rounded-tl-lg">Parámetro</th>
-                    <th className="p-3 font-medium">Valor</th>
-                    <th className="p-3 font-medium">Unidad</th>
-                    <th className="p-3 font-medium">Rango Ref.</th>
-                    <th className="p-3 font-medium">Estado</th>
-                    <th className="p-3 font-medium rounded-tr-lg">Análisis</th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm divide-y divide-slate-100">
-                  {editedResult.parameters.map((param, index) => (
-                    <tr key={index} className="hover:bg-slate-50/50">
-                      <td className="p-3">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={param.name}
-                            onChange={(e) => handleParamChange(index, 'name', e.target.value)}
-                            className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
-                          />
-                        ) : (
-                          <span className="font-medium text-slate-800">{param.name}</span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={param.value}
-                            onChange={(e) => handleParamChange(index, 'value', e.target.value)}
-                            className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
-                          />
-                        ) : (
-                          param.value
-                        )}
-                      </td>
-                      <td className="p-3">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={param.unit}
-                            onChange={(e) => handleParamChange(index, 'unit', e.target.value)}
-                            className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
-                          />
-                        ) : (
-                          <span className="text-slate-500">{param.unit}</span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={param.referenceRange}
-                            onChange={(e) => handleParamChange(index, 'referenceRange', e.target.value)}
-                            className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
-                          />
-                        ) : (
-                          <span className="text-slate-500">{param.referenceRange}</span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        {isEditing ? (
-                          <select
-                            value={param.status}
-                            onChange={(e) => handleParamChange(index, 'status', e.target.value as any)}
-                            className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
-                          >
-                            <option value="Normal">Normal</option>
-                            <option value="Alto">Alto</option>
-                            <option value="Bajo">Bajo</option>
-                          </select>
-                        ) : (
-                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                            param.status === 'Alto' ? 'bg-red-50 text-red-700' : 
-                            param.status === 'Bajo' ? 'bg-amber-50 text-amber-700' : 
-                            'bg-emerald-50 text-emerald-700'
-                          }`}>
-                            {param.status}
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={param.analysis}
-                            onChange={(e) => handleParamChange(index, 'analysis', e.target.value)}
-                            className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
-                          />
-                        ) : (
-                          <span className="text-slate-600">{param.analysis}</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-8">
+              {Object.entries(
+                editedResult.parameters.reduce((acc, param, originalIndex) => {
+                  const category = param.category || getCategory(param.name);
+                  if (!acc[category]) acc[category] = [];
+                  acc[category].push({ ...param, originalIndex });
+                  return acc;
+                }, {} as Record<string, (LabParameter & { originalIndex: number })[]>)
+              ).map(([category, params]) => (
+                <div key={category} className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 w-1 bg-brand-600 rounded-full"></div>
+                    <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{category}</h4>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                          <th className="p-3 font-medium rounded-tl-lg">Parámetro</th>
+                          {isEditing && <th className="p-3 font-medium">Categoría</th>}
+                          <th className="p-3 font-medium">Valor</th>
+                          <th className="p-3 font-medium">Unidad</th>
+                          <th className="p-3 font-medium">Rango Ref.</th>
+                          <th className="p-3 font-medium">Estado</th>
+                          <th className="p-3 font-medium rounded-tr-lg">Análisis</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-sm divide-y divide-slate-100">
+                        {params.map((param) => (
+                          <tr key={param.originalIndex} className="hover:bg-slate-50/50">
+                            <td className="p-3">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={param.name}
+                                  onChange={(e) => handleParamChange(param.originalIndex, 'name', e.target.value)}
+                                  className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
+                                />
+                              ) : (
+                                <span className="font-medium text-slate-800">{param.name}</span>
+                              )}
+                            </td>
+                            {isEditing && (
+                              <td className="p-3">
+                                <select
+                                  value={param.category || 'Otros'}
+                                  onChange={(e) => handleParamChange(param.originalIndex, 'category', e.target.value)}
+                                  className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
+                                >
+                                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                              </td>
+                            )}
+                            <td className="p-3 font-bold">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={param.value}
+                                  onChange={(e) => handleParamChange(param.originalIndex, 'value', e.target.value)}
+                                  className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
+                                />
+                              ) : (
+                                param.value
+                              )}
+                            </td>
+                            <td className="p-3">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={param.unit}
+                                  onChange={(e) => handleParamChange(param.originalIndex, 'unit', e.target.value)}
+                                  className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
+                                />
+                              ) : (
+                                <span className="text-slate-500">{param.unit}</span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={param.referenceRange}
+                                  onChange={(e) => handleParamChange(param.originalIndex, 'referenceRange', e.target.value)}
+                                  className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
+                                />
+                              ) : (
+                                <span className="text-slate-500">{param.referenceRange}</span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              {isEditing ? (
+                                <select
+                                  value={param.status}
+                                  onChange={(e) => handleParamChange(param.originalIndex, 'status', e.target.value as any)}
+                                  className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
+                                >
+                                  <option value="Normal">Normal</option>
+                                  <option value="Alto">Alto</option>
+                                  <option value="Bajo">Bajo</option>
+                                </select>
+                              ) : (
+                                <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                                  param.status === 'Alto' ? 'bg-red-50 text-red-700' : 
+                                  param.status === 'Bajo' ? 'bg-amber-50 text-amber-700' : 
+                                  'bg-emerald-50 text-emerald-700'
+                                }`}>
+                                  {param.status}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={param.analysis}
+                                  onChange={(e) => handleParamChange(param.originalIndex, 'analysis', e.target.value)}
+                                  className="w-full px-2 py-1 border border-slate-300 rounded text-sm"
+                                />
+                              ) : (
+                                <span className="text-slate-600 italic text-xs">{param.analysis}</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
