@@ -152,6 +152,36 @@ export const LaboratorioDetailModal: React.FC<Props> = ({ result, onClose, onDel
                     <div className="text-sm font-medium text-slate-800">{result.eps || 'N/A'}</div>
                   )}
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Fecha Recepción</label>
+                  {isEditing ? (
+                    <input
+                      type="date"
+                      value={editedResult.receptionDate || ''}
+                      onChange={(e) => setEditedResult({ ...editedResult, receptionDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                    />
+                  ) : (
+                    <div className="text-sm font-medium text-slate-800">
+                      {result.receptionDate ? formatColombia(result.receptionDate).split(' ')[0] : 'N/A'}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Fecha Toma</label>
+                  {isEditing ? (
+                    <input
+                      type="date"
+                      value={editedResult.sampleDate || ''}
+                      onChange={(e) => setEditedResult({ ...editedResult, sampleDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                    />
+                  ) : (
+                    <div className="text-sm font-medium text-slate-800">
+                      {result.sampleDate ? formatColombia(result.sampleDate).split(' ')[0] : 'N/A'}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
