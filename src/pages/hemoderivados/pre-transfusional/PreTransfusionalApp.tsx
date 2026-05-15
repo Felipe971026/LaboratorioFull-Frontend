@@ -1,17 +1,24 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BloodTestForm } from '../components/BloodTestForm';
 import { generateInterpretation } from '../utils/bloodTestUtils';
 import { RecordCard } from '../components/RecordCard';
 import { BloodTestRecord } from '../types';
-import { Droplets, History, Plus, Search, LogIn, LogOut, User as UserIcon, ShieldCheck, X, FileText, Calendar, UserCheck, Activity, AlertTriangle, ArrowLeft, CheckCircle, RotateCcw, Edit2 } from 'lucide-react';
+import { Droplets, History, Plus, Search, LogIn, LogOut, User as UserIcon, ShieldCheck, X, FileText, Calendar, UserCheck, Activity, AlertTriangle, ArrowLeft, CheckCircle, RotateCcw, Edit2, LayoutGrid, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db, loginWithGoogle, logout, handleFirestoreError, OperationType } from '../../../firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
 import { saveRecord as apiSaveRecord, deleteRecord as apiDeleteRecord } from '../../../lib/api';
 import { getNowISO } from '../../../utils/dateUtils';
+
+const HEMO_TYPES = [
+  'Globulos Rojos',
+  'Plasma Fresco Congelado',
+  'Crioprecipitado',
+  'Plaquetas (Estándar)',
+  'Plaquetas AFERESIS'
+];
 
 export const PreTransfusionalApp: React.FC = () => {
   const navigate = useNavigate();
@@ -29,6 +36,9 @@ export const PreTransfusionalApp: React.FC = () => {
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   
+  const [selectedHemoType, setSelectedHemoType] = useState<string>('all');
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+
   const [recordToAccept, setRecordToAccept] = useState<BloodTestRecord | null>(null);
   const [acceptPerson, setAcceptPerson] = useState('');
   const [recordToReturn, setRecordToReturn] = useState<BloodTestRecord | null>(null);
@@ -298,9 +308,9 @@ export const PreTransfusionalApp: React.FC = () => {
   };
 
   const filteredRecords = records.filter(r => {
-    if (!searchTerm) return true;
+    // Search term filter
     const term = searchTerm.toLowerCase();
-    return (
+    const matchesSearch = !searchTerm || (
       (r.patientName && r.patientName.toLowerCase().includes(term)) ||
       (r.patientId && r.patientId.includes(term)) ||
       (r.unitId && r.unitId.toLowerCase().includes(term)) ||
@@ -309,7 +319,23 @@ export const PreTransfusionalApp: React.FC = () => {
       (r.requestedHemoderivative && r.requestedHemoderivative.toLowerCase().includes(term)) ||
       (r.requestType && r.requestType.toLowerCase().includes(term))
     );
+
+    // Hemo type filter
+    const matchesType = selectedHemoType === 'all' || r.requestedHemoderivative === selectedHemoType;
+
+    // Patient filter from sidebar
+    const matchesPatient = !selectedPatientId || r.patientId === selectedPatientId;
+
+    return matchesSearch && matchesType && matchesPatient;
   });
+
+  const getCounts = (type: string) => {
+    const typeRecords = type === 'all' 
+      ? records 
+      : records.filter(r => r.requestedHemoderivative === type);
+    
+    return typeRecords.length;
+  };
 
   const groupedRecords = filteredRecords.reduce((acc, record) => {
     const patientKey = `${record.patientId || 'unknown'}_${(record.patientName || '').trim().toLowerCase()}_${record.bloodGroup || ''}${record.rh || ''}`;
@@ -354,7 +380,7 @@ export const PreTransfusionalApp: React.FC = () => {
     <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans selection:bg-red-100 selection:text-red-900">
       {/* Navigation */}
       <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-zinc-200 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
+        <div className="max-w-[1600px] mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
             <button 
               onClick={() => navigate('/hemoderivados')}
@@ -421,7 +447,7 @@ export const PreTransfusionalApp: React.FC = () => {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="max-w-[1600px] mx-auto px-6 py-8">
         {!user ? (
           <div className="max-w-md mx-auto mt-20 text-center space-y-6">
             <div className="bg-red-50 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto">
@@ -521,130 +547,244 @@ export const PreTransfusionalApp: React.FC = () => {
                 exit={{ opacity: 0 }}
                 className="space-y-8"
               >
-                {/* Search and Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <h2 className="text-3xl font-bold text-zinc-900">Historial de Pruebas del Dia</h2>
-                    <p className="text-zinc-500">Consulta y gestiona los registros de hemoderivados.</p>
-                  </div>
-                  
-                  <div className="relative group">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-red-500 transition-colors" size={20} />
-                    <input
-                      type="text"
-                      placeholder="Buscar por paciente o ID..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-12 pr-6 py-3 bg-white border border-zinc-200 rounded-2xl w-full md:w-80 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all shadow-sm"
-                    />
-                  </div>
-                </div>
+                {/* Records Grid and Sidebar */}
+                <div className="flex flex-col lg:flex-row gap-8">
+                  {/* Sidebar with Patient List */}
+                  <aside className="w-full lg:w-72 shrink-0 space-y-6">
+                    {/* Hemo Type Categories */}
+                    <div className="bg-white rounded-[32px] p-6 border border-zinc-200 shadow-sm sticky top-32">
+                      <h3 className="text-sm font-black uppercase tracking-widest text-zinc-400 mb-6 flex items-center gap-2">
+                        <LayoutGrid size={16} className="text-red-600" />
+                        Tipos de Hemo
+                      </h3>
+                      
+                      <div className="space-y-2">
+                        <button
+                          onClick={() => setSelectedHemoType('all')}
+                          className={`w-full flex items-center justify-between p-3 rounded-2xl transition-all ${
+                            selectedHemoType === 'all' 
+                            ? 'bg-red-600 text-white shadow-lg shadow-red-100' 
+                            : 'text-zinc-600 hover:bg-zinc-50 border border-transparent'
+                          }`}
+                        >
+                          <span className="font-bold text-sm">Todos</span>
+                          <span className={`${selectedHemoType === 'all' ? 'text-red-100' : 'text-zinc-400'} text-xs font-bold`}>
+                            {records.length}
+                          </span>
+                        </button>
+                        
+                        {HEMO_TYPES.map(type => {
+                          const count = getCounts(type);
+                          if (count === 0 && selectedHemoType !== type) return null;
+                          return (
+                            <button
+                              key={type}
+                              onClick={() => setSelectedHemoType(type)}
+                              className={`w-full flex flex-col p-4 rounded-2xl border transition-all text-left ${
+                                selectedHemoType === type 
+                                ? 'bg-red-50 border-red-200 shadow-sm ring-1 ring-red-200' 
+                                : 'bg-white border-zinc-100 hover:border-zinc-200 hover:bg-zinc-50'
+                              }`}
+                            >
+                              <div className="flex justify-between items-start mb-1">
+                                <span className={`font-bold text-xs uppercase tracking-tight ${selectedHemoType === type ? 'text-red-700' : 'text-zinc-500'}`}>
+                                  {type}
+                                </span>
+                                <span className={`text-xs font-black ${selectedHemoType === type ? 'text-red-600' : 'text-zinc-400'}`}>
+                                  {count}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
 
-                {/* Records Grid */}
-                {Object.keys(groupedRecords).length > 0 ? (
-                  <div className="space-y-10">
-                    {Object.entries(groupedRecords).map(([patientKey, group], idx) => (
-                      <motion.div
-                        key={patientKey}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.05 }}
-                        className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm"
-                      >
-                        <div className="flex items-center justify-between mb-6 border-b border-zinc-100 pb-4">
-                          <div className="flex items-center gap-3">
-                            <div className="bg-zinc-100 p-3 rounded-xl">
-                              <UserIcon className="text-zinc-600" size={24} />
-                            </div>
-                            <div>
-                              <h3 className="text-xl font-bold text-zinc-900">{group.patientName}</h3>
-                              <p className="text-sm text-zinc-500 font-medium">
-                                ID: {group.patientId} • Grupo: <span className="text-red-600 font-bold">{group.bloodGroup}{group.rh}</span>
-                              </p>
-                            </div>
-                          </div>
+                      <div className="mt-8 pt-6 border-t border-zinc-100">
+                        <h3 className="text-sm font-black uppercase tracking-widest text-zinc-400 mb-4 flex items-center gap-2">
+                          <Users size={16} className="text-red-600" />
+                          Pacientes
+                        </h3>
+                        <div className="space-y-1 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                          <button
+                            onClick={() => setSelectedPatientId(null)}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                              selectedPatientId === null 
+                              ? 'bg-zinc-900 text-white shadow-md' 
+                              : 'text-zinc-600 hover:bg-zinc-50'
+                            }`}
+                          >
+                            Todos los pacientes
+                          </button>
+                          {Object.values(groupedRecords).length > 0 ? (
+                            Object.values(groupedRecords).map(group => (
+                              <button
+                                key={group.patientId}
+                                onClick={() => setSelectedPatientId(group.patientId)}
+                                className={`w-full text-left px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                                  selectedPatientId === group.patientId 
+                                  ? 'bg-red-600 text-white shadow-md' 
+                                  : 'text-zinc-600 hover:bg-zinc-50'
+                                }`}
+                              >
+                                <div className="truncate">{group.patientName}</div>
+                                <div className={`text-[10px] ${selectedPatientId === group.patientId ? 'text-red-100' : 'text-zinc-400'}`}>
+                                  ID: {group.patientId}
+                                </div>
+                              </button>
+                            ))
+                          ) : (
+                            <p className="text-xs text-zinc-400 py-4 text-center">No hay pacientes</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </aside>
 
+                  {/* Main History Feed */}
+                  <div className="flex-1 space-y-8">
+                    {/* Search and Header */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <h2 className="text-3xl font-bold text-zinc-900">
+                          {selectedHemoType === 'all' ? 'Historial de Pruebas' : selectedHemoType}
+                        </h2>
+                        <p className="text-zinc-500">
+                          {selectedPatientId 
+                            ? `Filtrando resultados para el paciente seleccionado.`
+                            : `Consulta y gestiona los registros de hemoderivados.`}
+                        </p>
+                      </div>
+                      
+                      <div className="relative group">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-red-500 transition-colors" size={20} />
+                        <input
+                          type="text"
+                          placeholder="Buscar por paciente o ID..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="pl-12 pr-6 py-3 bg-white border border-zinc-200 rounded-2xl w-full md:w-80 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Records Grid */}
+                    {Object.keys(groupedRecords).length > 0 ? (
+                      <div className="space-y-10">
+                        {Object.entries(groupedRecords).map(([patientKey, group], idx) => (
+                          <motion.div
+                            key={patientKey}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm"
+                          >
+                            <div className="flex items-center justify-between mb-6 border-b border-zinc-100 pb-4">
+                              <div className="flex items-center gap-3">
+                                <div className="bg-zinc-100 p-3 rounded-xl">
+                                  <UserIcon className="text-zinc-600" size={24} />
+                                </div>
+                                <div>
+                                  <h3 className="text-xl font-bold text-zinc-900">{group.patientName}</h3>
+                                  <p className="text-sm text-zinc-500 font-medium">
+                                    ID: {group.patientId} • Grupo: <span className="text-red-600 font-bold">{group.bloodGroup}{group.rh}</span>
+                                  </p>
+                                </div>
+                              </div>
+
+                              <button
+                                onClick={() => {
+                                  setPatientToEdit({ id: group.patientId, name: group.patientName });
+                                  setNewPatientName(group.patientName);
+                                  setNewPatientId(group.patientId);
+                                }}
+                                className="p-2 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                                title="Editar información del paciente"
+                              >
+                                <Edit2 size={18} />
+                              </button>
+                            </div>
+
+                            <div className="space-y-8">
+                              {Object.entries(group.hemoderivativeGroups).map(([hemoType, typeRecords]) => (
+                                <div key={hemoType} className="space-y-4">
+                                  <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 flex items-center gap-2">
+                                    <Droplets size={14} className="text-red-500" />
+                                    {hemoType} ({typeRecords.length})
+                                  </h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {typeRecords.map((record) => {
+                                      const isTransfused = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
+                                                    dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
+                                      
+                                      // Global check: Is this unit reserved by ANY other active cross-match?
+                                      const isReserved = records.some(r => 
+                                        r.id !== record.id && 
+                                        (
+                                          (r.unitId && (r.unitId === record.unitId || r.unitId === record.qualitySeal)) ||
+                                          (r.qualitySeal && (r.qualitySeal === record.unitId || r.qualitySeal === record.qualitySeal))
+                                        ) && 
+                                        r.acceptedBy && 
+                                        !r.returned &&
+                                        !isTransfused
+                                      );
+
+                                      return (
+                                        <RecordCard 
+                                          key={record.id || record.createdAt} 
+                                          record={record} 
+                                          onView={setSelectedRecord}
+                                          onDelete={deleteRecord}
+                                          onEdit={handleEdit}
+                                          onAccept={setRecordToAccept}
+                                          onReturn={setRecordToReturn}
+                                          currentUserUid={user?.uid}
+                                          isAdmin={isAdmin}
+                                          isUsed={isTransfused}
+                                          isReserved={isReserved}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-20 text-center bg-white border border-dashed border-zinc-200 rounded-3xl">
+                        <div className="bg-zinc-50 p-6 rounded-full mb-4">
+                          <History size={48} className="text-zinc-300" />
+                        </div>
+                        <h3 className="text-xl font-semibold text-zinc-900">No hay registros</h3>
+                        <p className="text-zinc-500 max-w-xs mx-auto mt-2">
+                          {searchTerm || selectedHemoType !== 'all' || selectedPatientId
+                            ? 'No se encontraron resultados para los filtros aplicados.' 
+                            : 'Comienza creando un nuevo registro de prueba cruzada.'}
+                        </p>
+                        {!searchTerm && selectedHemoType === 'all' && !selectedPatientId && (
+                          <button
+                            onClick={() => setShowForm(true)}
+                            className="mt-6 text-red-600 font-semibold hover:text-red-700 transition-colors"
+                          >
+                            Crear primer registro →
+                          </button>
+                        )}
+                        {(selectedHemoType !== 'all' || selectedPatientId) && (
                           <button
                             onClick={() => {
-                              setPatientToEdit({ id: group.patientId, name: group.patientName });
-                              setNewPatientName(group.patientName);
-                              setNewPatientId(group.patientId);
+                              setSelectedHemoType('all');
+                              setSelectedPatientId(null);
                             }}
-                            className="p-2 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                            title="Editar información del paciente"
+                            className="mt-6 text-zinc-600 font-semibold hover:text-zinc-900 transition-colors"
                           >
-                            <Edit2 size={18} />
+                            Limpiar filtros
                           </button>
-                        </div>
-
-                        <div className="space-y-8">
-                          {Object.entries(group.hemoderivativeGroups).map(([hemoType, typeRecords]) => (
-                            <div key={hemoType} className="space-y-4">
-                              <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 flex items-center gap-2">
-                                <Droplets size={14} className="text-red-500" />
-                                {hemoType} ({typeRecords.length})
-                              </h4>
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {typeRecords.map((record) => {
-                                  const isTransfused = transfusionRecords.some(t => t.unitId === record.unitId || t.qualitySeal === record.qualitySeal) ||
-                                                dispositionRecords.some(d => d.unitId === record.unitId || d.qualitySeal === record.qualitySeal);
-                                  
-                                  // Global check: Is this unit reserved by ANY other active cross-match?
-                                  const isReserved = records.some(r => 
-                                    r.id !== record.id && 
-                                    (
-                                      (r.unitId && (r.unitId === record.unitId || r.unitId === record.qualitySeal)) ||
-                                      (r.qualitySeal && (r.qualitySeal === record.unitId || r.qualitySeal === record.qualitySeal))
-                                    ) && 
-                                    r.acceptedBy && 
-                                    !r.returned &&
-                                    !isTransfused
-                                  );
-
-                                  return (
-                                    <RecordCard 
-                                      key={record.id || record.createdAt} 
-                                      record={record} 
-                                      onView={setSelectedRecord}
-                                      onDelete={deleteRecord}
-                                      onEdit={handleEdit}
-                                      onAccept={setRecordToAccept}
-                                      onReturn={setRecordToReturn}
-                                      currentUserUid={user?.uid}
-                                      isAdmin={isAdmin}
-                                      isUsed={isTransfused}
-                                      isReserved={isReserved}
-                                    />
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-20 text-center bg-white border border-dashed border-zinc-200 rounded-3xl">
-                    <div className="bg-zinc-50 p-6 rounded-full mb-4">
-                      <History size={48} className="text-zinc-300" />
-                    </div>
-                    <h3 className="text-xl font-semibold text-zinc-900">No hay registros</h3>
-                    <p className="text-zinc-500 max-w-xs mx-auto mt-2">
-                      {searchTerm 
-                        ? 'No se encontraron resultados para tu búsqueda.' 
-                        : 'Comienza creando un nuevo registro de prueba cruzada.'}
-                    </p>
-                    {!searchTerm && (
-                      <button
-                        onClick={() => setShowForm(true)}
-                        className="mt-6 text-red-600 font-semibold hover:text-red-700 transition-colors"
-                      >
-                        Crear primer registro →
-                      </button>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -652,7 +792,7 @@ export const PreTransfusionalApp: React.FC = () => {
       </main>
 
       {/* Footer */}
-      <footer className="max-w-7xl mx-auto px-6 py-12 border-t border-zinc-200 mt-12">
+      <footer className="max-w-[1600px] mx-auto px-6 py-12 border-t border-zinc-200 mt-12">
         <div className="flex flex-col md:flex-row justify-between items-center gap-6 text-sm text-zinc-500">
           <div className="flex items-center gap-2">
             <Droplets size={16} className="text-red-600" />
